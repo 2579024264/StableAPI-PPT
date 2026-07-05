@@ -159,7 +159,9 @@ def create_app():
     app.register_blueprint(style_bp)
 
     with app.app_context():
-        if db_path_env:
+        if os.getenv("ALEMBIC_RUNNING") == "1":
+            pass
+        elif db_path_env:
             db.create_all()
             from desktop_bootstrap import repair_desktop_settings_schema
             repair_desktop_settings_schema(db)

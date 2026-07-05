@@ -8,6 +8,12 @@ from sqlalchemy import engine_from_config, pool
 # Add the backend directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# Importing app.py creates a Flask app at module scope for normal runtime.
+# Tell that import path not to run migrations recursively while Alembic is
+# already configuring its own migration context.
+_previous_alembic_running = os.environ.get("ALEMBIC_RUNNING")
+os.environ["ALEMBIC_RUNNING"] = "1"
+
 from app import create_app
 from models import db
 
@@ -63,10 +69,14 @@ def run_migrations_online() -> None:
             context.run_migrations()
 
 
-if context.is_offline_mode():
-    run_migrations_offline()
-else:
-    run_migrations_online()
-
-
+try:
+    if context.is_offline_mode():
+        run_migrations_offline()
+    else:
+        run_migrations_online()
+finally:
+    if _previous_alembic_running is None:
+        os.environ.pop("ALEMBIC_RUNNING", None)
+    else:
+        os.environ["ALEMBIC_RUNNING"] = _previous_alembic_running
 
