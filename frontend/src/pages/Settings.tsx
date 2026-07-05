@@ -459,8 +459,8 @@ const LAZYLLM_VENDOR_SET = new Set(LAZYLLM_SOURCES.map(s => s.value));
 
 // 初始表单数据
 const initialFormData = {
-  ai_provider_format: 'gemini' as string,
-  api_base_url: '',
+  ai_provider_format: 'openai' as string,
+  api_base_url: DEFAULT_API_BASE_URL,
   api_key: '',
   text_model: '',
   image_model: '',
@@ -668,7 +668,7 @@ export const SettingsAbout: React.FC<{ t: SettingsTranslator }> = ({ t }) => {
 };
 
 const formDataFromSettings = (data: SettingsType): typeof initialFormData => {
-  const providerFormat = resolveLazyllmVendor(data.ai_provider_format || 'gemini', data.lazyllm_api_keys_info).toLowerCase();
+  const providerFormat = resolveLazyllmVendor(data.ai_provider_format || 'openai', data.lazyllm_api_keys_info).toLowerCase();
   const textModelSource = (data.text_model_source || '').toLowerCase();
   const imageModelSource = (data.image_model_source || '').toLowerCase();
   const imageCaptionModelSource = (data.image_caption_model_source || '').toLowerCase();

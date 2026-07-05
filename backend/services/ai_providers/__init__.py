@@ -59,7 +59,7 @@ def get_provider_format() -> str:
     Priority:
         1. Flask app.config['AI_PROVIDER_FORMAT'] (from database settings)
         2. Environment variable AI_PROVIDER_FORMAT
-        3. Default: 'gemini'
+        3. Default: 'openai'
 
     Returns:
         "gemini", "openai", "vertex", "lazyllm", or a lazyllm vendor name
@@ -77,7 +77,7 @@ def get_provider_format() -> str:
         pass
 
     # Fallback to environment variable
-    return os.getenv('AI_PROVIDER_FORMAT', 'gemini').lower()
+    return os.getenv('AI_PROVIDER_FORMAT', 'openai').lower()
 
 
 def _resolve_setting(key: str, fallback: Optional[str] = None) -> Optional[str]:

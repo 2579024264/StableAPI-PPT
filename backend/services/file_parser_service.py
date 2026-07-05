@@ -25,7 +25,7 @@ def _get_ai_provider_format(provider_format: str = None) -> str:
         1. Provided provider_format parameter
         2. Flask app.config['AI_PROVIDER_FORMAT'] (from database settings)
         3. Environment variable AI_PROVIDER_FORMAT
-        4. Default: 'gemini'
+        4. Default: 'openai'
     
     Args:
         provider_format: Optional provider format string. If not provided, reads from Flask config or environment variable.
@@ -45,7 +45,7 @@ def _get_ai_provider_format(provider_format: str = None) -> str:
         pass
     
     # Fallback to environment variable
-    return os.getenv('AI_PROVIDER_FORMAT', 'gemini').lower()
+    return os.getenv('AI_PROVIDER_FORMAT', 'openai').lower()
 
 
 class FileParserService:
