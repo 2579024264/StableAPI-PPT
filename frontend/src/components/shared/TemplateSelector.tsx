@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button, useToast, MaterialSelector } from '@/components/shared';
 import { useT } from '@/hooks/useT';
 import { getImageUrl } from '@/api/client';
-import { isDesktop } from '@/utils';
+import { publicAssetPath } from '@/utils';
 
 // Template 组件自包含翻译
 const templateI18n = {
@@ -41,11 +41,6 @@ import { listUserTemplates, uploadUserTemplate, deleteUserTemplate, type UserTem
 import { materialUrlToFile } from '@/components/shared/MaterialSelector';
 import type { Material } from '@/api/endpoints';
 import { ImagePlus, X } from 'lucide-react';
-
-const publicAssetPath = (assetPath: string) => {
-  const normalizedPath = assetPath.startsWith('/') ? assetPath : `/${assetPath}`;
-  return isDesktop ? `.${normalizedPath}` : normalizedPath;
-};
 
 interface TemplateSelectorProps {
   onSelect: (templateFile: File | null, templateId?: string) => void;

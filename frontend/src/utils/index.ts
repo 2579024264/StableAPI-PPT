@@ -9,6 +9,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function getPublicBasePath(): string {
+  const raw = (import.meta.env.VITE_PUBLIC_BASE_PATH || '').trim();
+  if (!raw || raw === '.' || raw === './' || raw === '/') return '';
+  const withLeadingSlash = raw.startsWith('/') ? raw : `/${raw}`;
+  return withLeadingSlash.replace(/\/+$/, '');
+}
+
+export function publicAssetPath(assetPath: string): string {
+  const normalizedPath = assetPath.startsWith('/') ? assetPath : `/${assetPath}`;
+  if (isDesktop) return `.${normalizedPath}`;
+  return `${getPublicBasePath()}${normalizedPath}`;
+}
+
 /**
  * 标准化后端返回的项目数据
  */
