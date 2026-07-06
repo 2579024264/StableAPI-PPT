@@ -13,6 +13,7 @@ const templateI18n = {
       saveToLibraryOnUpload: "上传模板时同时保存到我的模板库",
       selectFromMaterials: "从素材库选择", selectAsTemplate: "从素材库选择作为模板",
       cannotDeleteInUse: "当前使用中的模板不能删除，请先取消选择或切换",
+      applyingTemplate: "应用中...",
       presets: {
         retroScroll: "复古卷轴", vectorIllustration: "矢量插画", glassEffect: "拟物玻璃",
         techBlue: "科技蓝", simpleBusiness: "简约商务", academicReport: "学术报告"
@@ -28,6 +29,7 @@ const templateI18n = {
       saveToLibraryOnUpload: "Save to my template library when uploading",
       selectFromMaterials: "Select from Materials", selectAsTemplate: "Select from materials as template",
       cannotDeleteInUse: "Cannot delete template in use, please deselect or switch first",
+      applyingTemplate: "Applying...",
       presets: {
         retroScroll: "Retro Scroll", vectorIllustration: "Vector Illustration", glassEffect: "Glass Effect",
         techBlue: "Tech Blue", simpleBusiness: "Simple Business", academicReport: "Academic Report"
@@ -43,7 +45,7 @@ import type { Material } from '@/api/endpoints';
 import { ImagePlus, X } from 'lucide-react';
 
 interface TemplateSelectorProps {
-  onSelect: (templateFile: File | null, templateId?: string) => void;
+  onSelect: (templateFile: File | null, templateId?: string) => void | Promise<void>;
   selectedTemplateId?: string | null;
   selectedPresetTemplateId?: string | null;
   showUpload?: boolean;
@@ -62,6 +64,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [isMaterialSelectorOpen, setIsMaterialSelectorOpen] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null);
   const [saveToLibrary, setSaveToLibrary] = useState(true);
   const { show, ToastContainer } = useToast();
 
@@ -122,13 +125,25 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
     e.target.value = '';
   };
 
-  const handleSelectUserTemplate = (template: UserTemplate) => {
-    onSelect(null, template.template_id);
+  const handleSelectUserTemplate = async (template: UserTemplate) => {
+    if (applyingTemplateId) return;
+    setApplyingTemplateId(template.template_id);
+    try {
+      await Promise.resolve(onSelect(null, template.template_id));
+    } finally {
+      setApplyingTemplateId(null);
+    }
   };
 
-  const handleSelectPresetTemplate = (templateId: string, preview: string) => {
+  const handleSelectPresetTemplate = async (templateId: string, preview: string) => {
     if (!preview) return;
-    onSelect(null, templateId);
+    if (applyingTemplateId) return;
+    setApplyingTemplateId(templateId);
+    try {
+      await Promise.resolve(onSelect(null, templateId));
+    } finally {
+      setApplyingTemplateId(null);
+    }
   };
 
   const handleSelectMaterials = async (materials: Material[], saveAsTemplate?: boolean) => {
@@ -186,7 +201,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                   key={template.template_id}
                   onClick={() => handleSelectUserTemplate(template)}
                   className={`aspect-[4/3] rounded-lg border-2 cursor-pointer transition-all relative group ${
-                    selectedTemplateId === template.template_id
+                    selectedTemplateId === template.template_id || applyingTemplateId === template.template_id
                       ? 'border-banana-500 ring-2 ring-banana-200'
                       : 'border-gray-200 dark:border-border-primary hover:border-banana-300'
                   }`}
@@ -214,6 +229,11 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                       <span className="text-white font-semibold text-sm">{t('template.templateSelected')}</span>
                     </div>
                   )}
+                  {applyingTemplateId === template.template_id && (
+                    <div className="absolute inset-0 bg-banana-500/30 backdrop-blur-[1px] flex items-center justify-center pointer-events-none">
+                      <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-[#343667] shadow-sm">{t('template.applyingTemplate')}</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -223,16 +243,16 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
         <div>
           <h4 className="text-sm font-medium text-gray-700 dark:text-foreground-secondary mb-2">{t('template.presetTemplates')}</h4>
           <div className="grid grid-cols-4 gap-4">
-            {presetTemplates.map((template) => (
-              <div
-                key={template.id}
-                onClick={() => template.preview && handleSelectPresetTemplate(template.id, template.preview)}
-                className={`aspect-[4/3] rounded-lg border-2 cursor-pointer transition-all bg-gray-100 dark:bg-background-secondary flex items-center justify-center relative ${
-                  selectedPresetTemplateId === template.id
-                    ? 'border-banana-500 ring-2 ring-banana-200'
-                    : 'border-gray-200 dark:border-border-primary hover:border-banana-500'
-                }`}
-              >
+              {presetTemplates.map((template) => (
+                <div
+                  key={template.id}
+                  onClick={() => template.preview && handleSelectPresetTemplate(template.id, template.preview)}
+                  className={`aspect-[4/3] rounded-lg border-2 cursor-pointer transition-all bg-gray-100 dark:bg-background-secondary flex items-center justify-center relative ${
+                    selectedPresetTemplateId === template.id || applyingTemplateId === template.id
+                      ? 'border-banana-500 ring-2 ring-banana-200'
+                      : 'border-gray-200 dark:border-border-primary hover:border-banana-500'
+                  }`}
+                >
                 {template.preview ? (
                   <>
                     <img
@@ -240,12 +260,17 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                       alt={t(template.nameKey)}
                       className="absolute inset-0 w-full h-full object-cover"
                     />
-                    {selectedPresetTemplateId === template.id && (
-                      <div className="absolute inset-0 bg-banana-500 bg-opacity-20 flex items-center justify-center pointer-events-none">
-                        <span className="text-white font-semibold text-sm">{t('template.templateSelected')}</span>
-                      </div>
-                    )}
-                  </>
+                      {selectedPresetTemplateId === template.id && (
+                        <div className="absolute inset-0 bg-banana-500 bg-opacity-20 flex items-center justify-center pointer-events-none">
+                          <span className="text-white font-semibold text-sm">{t('template.templateSelected')}</span>
+                        </div>
+                      )}
+                      {applyingTemplateId === template.id && (
+                        <div className="absolute inset-0 bg-banana-500/30 backdrop-blur-[1px] flex items-center justify-center pointer-events-none">
+                          <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-[#343667] shadow-sm">{t('template.applyingTemplate')}</span>
+                        </div>
+                      )}
+                    </>
                 ) : (
                   <span className="text-sm text-gray-500 dark:text-foreground-tertiary">{t(template.nameKey)}</span>
                 )}
