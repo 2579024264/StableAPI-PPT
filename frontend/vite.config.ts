@@ -32,6 +32,14 @@ function gitValue(command: string): string {
   }
 }
 
+function normalizeViteBase(basePath: string | undefined): string {
+  const raw = (basePath || '').trim()
+  if (!raw) return './'
+  if (raw === '.' || raw === './') return './'
+  const withLeadingSlash = raw.startsWith('/') ? raw : `/${raw}`
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash : `${withLeadingSlash}/`
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // 从项目根目录读取 .env 文件（相对于 frontend 目录的上一级）
@@ -47,9 +55,10 @@ export default defineConfig(({ mode }) => {
   const gitTag = env.VITE_APP_VERSION_TAG || gitValue('git describe --tags --exact-match HEAD')
   const gitSha = env.VITE_APP_COMMIT_SHA || gitValue('git rev-parse HEAD')
   const gitShortSha = env.VITE_APP_COMMIT_SHORT_SHA || gitSha.slice(0, 7)
+  const publicBasePath = env.VITE_PUBLIC_BASE_PATH || env.PUBLIC_BASE_PATH
   
   return {
-    base: './',
+    base: normalizeViteBase(publicBasePath),
     envDir,
     plugins: [react()],
     define: {

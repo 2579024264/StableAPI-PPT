@@ -19,6 +19,13 @@ const DEFAULT_TEXT_MODEL = 'gemini-3.1-pro-preview';
 const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const DEFAULT_IMAGE_CAPTION_MODEL = 'gemini-3.1-pro-preview';
 
+const normalizeRouterBasename = (basePath?: string): string | undefined => {
+  const raw = (basePath || '').trim();
+  if (!raw || raw === '.' || raw === './' || raw === '/') return undefined;
+  const withLeadingSlash = raw.startsWith('/') ? raw : `/${raw}`;
+  return withLeadingSlash.replace(/\/+$/, '');
+};
+
 const UrlApiKeyBootstrap: React.FC<{ show: ReturnType<typeof useToast>['show'] }> = ({ show }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -90,8 +97,9 @@ function App() {
         <AccessCodeGuard>
           {(() => {
             const Router = isDesktop ? HashRouter : BrowserRouter;
+            const basename = isDesktop ? undefined : normalizeRouterBasename(import.meta.env.VITE_PUBLIC_BASE_PATH);
             return (
-              <Router>
+              <Router basename={basename}>
                 <UrlApiKeyBootstrap show={show} />
                 <DesktopTitleBar />
                 <Routes>

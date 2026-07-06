@@ -50,7 +50,6 @@
 !docs/desktop-handover.md
 !.github/**/*.md
 *.pyc
-.env
 /desktop/.cache/
 /desktop/resources/ffmpeg/
 

@@ -32,6 +32,20 @@ function resolveDesktopBackendPort(): number {
 
 const isClientSideUrl = (url: string) => /^\/?(data|blob):/i.test(url);
 const normalizeClientSideUrl = (url: string) => url.replace(/^\/(?=(data|blob):)/i, '');
+const normalizePublicBasePath = (basePath?: string): string => {
+  const raw = (basePath || '').trim();
+  if (!raw || raw === '.' || raw === './' || raw === '/') return '';
+  const withLeadingSlash = raw.startsWith('/') ? raw : `/${raw}`;
+  return withLeadingSlash.replace(/\/+$/, '');
+};
+
+const PUBLIC_BASE_PATH = normalizePublicBasePath(import.meta.env.VITE_PUBLIC_BASE_PATH);
+
+function withPublicBasePath(path: string): string {
+  if (!PUBLIC_BASE_PATH || !path.startsWith('/')) return path;
+  if (path === PUBLIC_BASE_PATH || path.startsWith(`${PUBLIC_BASE_PATH}/`)) return path;
+  return `${PUBLIC_BASE_PATH}${path}`;
+}
 
 // 桌面模式：从 URL query param 同步读取后端端口，避免异步竞态
 if (isDesktop) {
@@ -39,7 +53,7 @@ if (isDesktop) {
 }
 
 export function getBaseURL(): string {
-  if (!isDesktop) return '';
+  if (!isDesktop) return PUBLIC_BASE_PATH;
   const port = (window as any).__BACKEND_PORT__;
   if (!isValidPort(port)) {
     console.warn('Desktop backend port is unavailable');
@@ -76,7 +90,10 @@ export function triggerDownload(relativeOrAbsoluteUrl: string, filename?: string
     }
     (window as any).electronAPI.downloadFile(url, filename || fallbackFilename);
   } else {
-    window.open(relativeOrAbsoluteUrl, '_blank');
+    const url = /^https?:\/\//i.test(relativeOrAbsoluteUrl) || isClientSideUrl(relativeOrAbsoluteUrl)
+      ? normalizeClientSideUrl(relativeOrAbsoluteUrl)
+      : withPublicBasePath(relativeOrAbsoluteUrl.startsWith('/') ? relativeOrAbsoluteUrl : `/${relativeOrAbsoluteUrl}`);
+    window.open(url, '_blank');
   }
 }
 
@@ -166,6 +183,8 @@ export const getImageUrl = (path?: string, timestamp?: string | number): string 
 
   if (isDesktop) {
     url = `${getBaseURL()}${url}`;
+  } else {
+    url = withPublicBasePath(url);
   }
   
   // 添加时间戳参数避免浏览器缓存（仅在提供时间戳时添加）

@@ -9,6 +9,7 @@ services:
         APT_MIRROR: ${APT_MIRROR:-}
         PYPI_INDEX_URL: ${PYPI_INDEX_URL:-}
         NPM_REGISTRY: ${NPM_REGISTRY:-}
+        PUBLIC_BASE_PATH: ${PUBLIC_BASE_PATH:-}
     container_name: banana-slides
     ports:
       - "${PORT:-3011}:80"
