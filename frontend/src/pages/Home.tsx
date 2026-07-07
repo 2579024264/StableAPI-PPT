@@ -295,6 +295,7 @@ export const Home: React.FC = () => {
     showToast: show,
     warnUnsupportedTypes: false,
     insertAtCursor,
+    localOnly: true,
   });
 
   const handleMaterialSelect = useCallback((materials: Material[]) => {
@@ -684,7 +685,11 @@ export const Home: React.FC = () => {
       const materialUrls: string[] = [];
       let match;
       while ((match = imageRegex.exec(content)) !== null) {
-        materialUrls.push(match[2]); // match[2] 是 URL
+        const url = match[2]; // match[2] 是 URL
+        if (url.startsWith('local-file://') || url.startsWith('blob:') || url.startsWith('data:')) {
+          continue;
+        }
+        materialUrls.push(url);
       }
       
       if (materialUrls.length > 0) {

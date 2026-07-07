@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useCallback, useState, useMemo, forwardRef, u
 import { cn } from '@/utils';
 import { useT } from '@/hooks/useT';
 import { isUploadingUrl, getUploadingPreviewUrl } from '@/hooks/useImagePaste';
+import { getImageUrl } from '@/api/client';
 
 const markdownTextareaI18n = {
   zh: {
@@ -764,7 +765,7 @@ export const MarkdownTextarea = forwardRef<MarkdownTextareaRef, MarkdownTextarea
           <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto border-t border-gray-100 dark:border-border-primary">
             {images.map((img, i) => {
               const uploading = isUploadingUrl(img.url);
-              const src = uploading ? getUploadingPreviewUrl(img.url) : img.url;
+              const src = uploading ? getUploadingPreviewUrl(img.url) : getImageUrl(img.url);
               return (
                 <div key={`${img.url}-${i}`} className="relative flex-shrink-0 group/thumb" title={img.alt !== 'image' ? img.alt : getDisplayName(img.alt, img.url)}>
                   <div className={cn(

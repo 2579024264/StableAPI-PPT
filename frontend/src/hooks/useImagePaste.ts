@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { uploadMaterial, getMaterialByUrl } from '@/api/endpoints';
+import { uploadLocalMaterial } from '@/services/strictLocalFiles';
 import { useT } from '@/hooks/useT';
 
 const ALLOWED_IMAGE_TYPES = [
@@ -120,6 +121,8 @@ interface UseImagePasteOptions {
   warnUnsupportedTypes?: boolean;
   /** If provided, use this to insert placeholder at cursor position instead of appending to end */
   insertAtCursor?: (markdown: string) => void;
+  /** Store inserted images in browser-local storage instead of uploading them to the backend. */
+  localOnly?: boolean;
 }
 
 export const useImagePaste = ({
@@ -129,6 +132,7 @@ export const useImagePaste = ({
   showToast,
   warnUnsupportedTypes = true,
   insertAtCursor,
+  localOnly = false,
 }: UseImagePasteOptions) => {
   const t = useT(imagePasteI18n);
   const [isUploading, setIsUploading] = useState(false);
@@ -183,14 +187,19 @@ export const useImagePaste = ({
     const results = await Promise.allSettled(
       placeholders.map(async ({ file, blobUrl, markdown }) => {
         try {
-          const response = await uploadMaterial(file, projectId ?? null, generateCaption);
+          const fallbackCaption = file.name.replace(/\.[^.]+$/, '') || 'image';
+          const response = localOnly
+            ? {
+                data: await uploadLocalMaterial(file, projectId ?? null, fallbackCaption),
+              }
+            : await uploadMaterial(file, projectId ?? null, generateCaption);
           const realUrl = response?.data?.url;
-          const rawCaption = response?.data?.caption || file.name.replace(/\.[^.]+$/, '') || 'image';
+          const rawCaption = response?.data?.caption || fallbackCaption;
           const caption = escapeMarkdown(rawCaption);
           if (!realUrl) throw new Error('No URL in response');
 
           // Track whether caption generation was requested but failed
-          const captionFailed = generateCaption && !response?.data?.caption;
+          const captionFailed = !localOnly && generateCaption && !response?.data?.caption;
 
           setContentRef.current(prev => prev.replace(markdown, `![${caption}](${realUrl})`));
           return { success: true, captionFailed };
@@ -234,7 +243,7 @@ export const useImagePaste = ({
     if (captionFailedCount > 0) {
       showToast({ message: t('imagePaste.captionFailed'), type: 'warning' });
     }
-  }, [projectId, generateCaption, warnUnsupportedTypes, showToast, t]);
+  }, [projectId, generateCaption, warnUnsupportedTypes, showToast, t, localOnly]);
 
   /** Extract markdown images from text */
   const extractMarkdownImages = useCallback((text: string): Array<{alt: string; url: string; match: string}> => {

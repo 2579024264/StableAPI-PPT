@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { X } from 'lucide-react';
 import { useT } from '@/hooks/useT';
 import { isUploadingUrl, getUploadingPreviewUrl } from '@/hooks/useImagePaste';
+import { getImageUrl } from '@/api/client';
 
 // ImagePreviewList 组件自包含翻译
 const imagePreviewI18n = {
@@ -69,7 +70,7 @@ export const ImagePreviewList: React.FC<ImagePreviewListProps> = ({
       <div className="flex gap-3 overflow-x-auto pb-2">
         {images.map((image, index) => {
           const uploading = isUploadingUrl(image.url);
-          const imgSrc = uploading ? getUploadingPreviewUrl(image.url) : image.url;
+          const imgSrc = uploading ? getUploadingPreviewUrl(image.url) : getImageUrl(image.url);
 
           return (
             <div
