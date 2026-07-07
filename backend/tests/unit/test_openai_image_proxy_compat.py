@@ -39,6 +39,22 @@ def _mock_requests_get(png_bytes):
     return patch('services.ai_providers.image.openai_provider.requests.get', return_value=mock_resp)
 
 
+class TestBuildExtraBody:
+    """Test provider-specific resolution hints sent through OpenAI-compatible proxies."""
+
+    def test_includes_newapi_gemini_image_config(self):
+        provider = _make_provider()
+        extra_body = provider._build_extra_body('16:9', '2K')
+
+        assert extra_body['aspect_ratio'] == '16:9'
+        assert extra_body['resolution'] == '2K'
+        assert extra_body['generationConfig']['imageConfig']['imageSize'] == '2K'
+        assert extra_body['extra_body']['google']['image_config'] == {
+            'aspect_ratio': '16:9',
+            'image_size': '2K',
+        }
+
+
 class TestDecodeImageResponse:
     """Test _decode_image_response with various item types."""
 

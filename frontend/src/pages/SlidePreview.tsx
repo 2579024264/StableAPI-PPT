@@ -883,7 +883,7 @@ export const SlidePreview: React.FC = () => {
       // 首次编辑该页，使用默认值
       setEditPrompt('');
       setSelectedContextImages({
-        useTemplate: false,
+        useTemplate: Boolean(currentProject.template_image_path || currentProject.template_image_url),
         descImageUrls: [],
         uploadedFiles: [],
       });

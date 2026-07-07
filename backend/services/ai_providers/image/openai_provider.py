@@ -162,6 +162,17 @@ class OpenAIImageProvider(ImageProvider):
             # Flat style parameters
             "aspect_ratio": aspect_ratio,
             "resolution": resolution_upper,
+
+            # NewAPI's OpenAI-to-Gemini adapter reads Gemini options from
+            # request.extra_body.google.image_config using snake_case keys.
+            "extra_body": {
+                "google": {
+                    "image_config": {
+                        "aspect_ratio": aspect_ratio,
+                        "image_size": resolution_upper,
+                    }
+                }
+            },
             
             # Nested style structure (compatible with some providers)
             "generationConfig": {

@@ -416,11 +416,45 @@ interface ServiceTestState {
 const VOLCENGINE_AGENTPLANS_CN_URL = 'https://www.volcengine.com/activity/ai618?utm_campaign=hw&utm_content=hw&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=banana-slides';
 const VOLCENGINE_AGENTPLANS_EN_URL = 'https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=banana-slides&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=banana-slides';
 const URL_API_KEY_LOCAL_STORAGE_KEY = 'stableapi-slides-api-key';
+const URL_API_KEY_BOOTSTRAP_SESSION_KEY = 'stableapi-slides-url-api-key-bootstrap';
+const URL_API_KEY_BOOTSTRAP_EVENT = 'stableapi-slides:url-api-key-bootstrap';
+const URL_API_KEY_BOOTSTRAP_MAX_AGE_MS = 5 * 60 * 1000;
+const DEFAULT_AI_PROVIDER_FORMAT = 'openai';
 const DEFAULT_API_BASE_URL = 'https://stableapi.io/v1';
 const DEFAULT_TEXT_MODEL = 'gemini-3.1-pro-preview';
 const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const DEFAULT_IMAGE_CAPTION_MODEL = 'gemini-3.1-pro-preview';
 const DEFAULT_MODEL_OPTIONS = [DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_IMAGE_CAPTION_MODEL];
+
+type UrlApiKeyBootstrapPayload = {
+  apiKey?: string;
+  settings?: SettingsType;
+  models?: string[];
+  modelsError?: string;
+  timestamp?: number;
+};
+
+const readRecentUrlApiKeyBootstrap = (): UrlApiKeyBootstrapPayload | null => {
+  try {
+    const raw = sessionStorage.getItem(URL_API_KEY_BOOTSTRAP_SESSION_KEY);
+    if (!raw) return null;
+    const payload = JSON.parse(raw) as UrlApiKeyBootstrapPayload;
+    if (!payload?.apiKey || !payload.timestamp) return null;
+    if (Date.now() - payload.timestamp > URL_API_KEY_BOOTSTRAP_MAX_AGE_MS) {
+      sessionStorage.removeItem(URL_API_KEY_BOOTSTRAP_SESSION_KEY);
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+};
+
+const writeUrlApiKeyBootstrap = (payload: UrlApiKeyBootstrapPayload) => {
+  const nextPayload = { ...payload, timestamp: Date.now() };
+  sessionStorage.setItem(URL_API_KEY_BOOTSTRAP_SESSION_KEY, JSON.stringify(nextPayload));
+  window.dispatchEvent(new CustomEvent(URL_API_KEY_BOOTSTRAP_EVENT, { detail: nextPayload }));
+};
 
 // LazyLLM 支持的厂商列表
 const LAZYLLM_SOURCES = [
@@ -459,7 +493,7 @@ const LAZYLLM_VENDOR_SET = new Set(LAZYLLM_SOURCES.map(s => s.value));
 
 // 初始表单数据
 const initialFormData = {
-  ai_provider_format: 'openai' as string,
+  ai_provider_format: DEFAULT_AI_PROVIDER_FORMAT as string,
   api_base_url: DEFAULT_API_BASE_URL,
   api_key: '',
   text_model: '',
@@ -668,7 +702,7 @@ export const SettingsAbout: React.FC<{ t: SettingsTranslator }> = ({ t }) => {
 };
 
 const formDataFromSettings = (data: SettingsType): typeof initialFormData => {
-  const providerFormat = resolveLazyllmVendor(data.ai_provider_format || 'openai', data.lazyllm_api_keys_info).toLowerCase();
+  const providerFormat = resolveLazyllmVendor(data.ai_provider_format || DEFAULT_AI_PROVIDER_FORMAT, data.lazyllm_api_keys_info).toLowerCase();
   const textModelSource = (data.text_model_source || '').toLowerCase();
   const imageModelSource = (data.image_model_source || '').toLowerCase();
   const imageCaptionModelSource = (data.image_caption_model_source || '').toLowerCase();
@@ -759,6 +793,45 @@ export const Settings: React.FC = () => {
     : formData.ai_provider_format === 'doubao'
       ? 'settings.doubaoKeyHelp'
       : 'settings.volcengineKeyHelp';
+
+  const applyUrlApiKeyBootstrap = (payload: UrlApiKeyBootstrapPayload | null) => {
+    if (!payload?.apiKey) return;
+    const apiKey = payload.apiKey;
+
+    localStorage.setItem(URL_API_KEY_LOCAL_STORAGE_KEY, apiKey);
+    if (payload.models) {
+      setAvailableModels(payload.models);
+    }
+    setModelsError(payload.modelsError || '');
+
+    if (payload.settings) {
+      setSettings(payload.settings);
+      sessionStorage.setItem('banana-settings', JSON.stringify(payload.settings));
+      setFormData({
+        ...formDataFromSettings(payload.settings),
+        api_key: apiKey,
+      });
+      return;
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      ai_provider_format: DEFAULT_AI_PROVIDER_FORMAT,
+      api_base_url: prev.api_base_url || DEFAULT_API_BASE_URL,
+      api_key: apiKey,
+      text_model: prev.text_model || DEFAULT_TEXT_MODEL,
+      image_model: prev.image_model || DEFAULT_IMAGE_MODEL,
+      image_caption_model: prev.image_caption_model || DEFAULT_IMAGE_CAPTION_MODEL,
+    }));
+  };
+
+  useEffect(() => {
+    const handleBootstrap = (event: Event) => {
+      applyUrlApiKeyBootstrap((event as CustomEvent<UrlApiKeyBootstrapPayload>).detail);
+    };
+    window.addEventListener(URL_API_KEY_BOOTSTRAP_EVENT, handleBootstrap);
+    return () => window.removeEventListener(URL_API_KEY_BOOTSTRAP_EVENT, handleBootstrap);
+  }, []);
 
   const handleOAuthLogin = async () => {
     setOauthConnecting(true);
@@ -1016,9 +1089,11 @@ export const Settings: React.FC = () => {
       const response = await api.getAvailableModels(override);
       const models = response.data?.models || [];
       setAvailableModels(models);
+      return models;
     } catch (error: any) {
       const message = error?.response?.data?.error?.message || error?.message || t('settings.messages.unknownError');
       setModelsError(message);
+      return [];
     } finally {
       setIsLoadingModels(false);
     }
@@ -1034,13 +1109,16 @@ export const Settings: React.FC = () => {
       const response = await api.getSettings();
       if (response.data) {
         let nextSettings = response.data;
+        const recentBootstrap = readRecentUrlApiKeyBootstrap();
         const inboundApiKey = new URLSearchParams(location.search).get('sk')?.trim() || '';
+        const displayApiKey = inboundApiKey || recentBootstrap?.apiKey || '';
         if (inboundApiKey) {
           clearApiKeyFromUrl();
           localStorage.setItem(URL_API_KEY_LOCAL_STORAGE_KEY, inboundApiKey);
+          writeUrlApiKeyBootstrap({ apiKey: inboundApiKey });
           try {
             const saved = await api.updateSettings({
-              ai_provider_format: 'openai',
+              ai_provider_format: DEFAULT_AI_PROVIDER_FORMAT,
               api_key: inboundApiKey,
               api_base_url: DEFAULT_API_BASE_URL,
               text_model: DEFAULT_TEXT_MODEL,
@@ -1049,6 +1127,7 @@ export const Settings: React.FC = () => {
             });
             if (saved.data) {
               nextSettings = saved.data;
+              writeUrlApiKeyBootstrap({ apiKey: inboundApiKey, settings: saved.data });
               show({ message: t('settings.messages.urlKeySaved'), type: 'success' });
             }
           } catch (saveError: any) {
@@ -1060,15 +1139,25 @@ export const Settings: React.FC = () => {
         }
 
         setSettings(nextSettings);
-        setFormData(formDataFromSettings(nextSettings));
+        setFormData({
+          ...formDataFromSettings(nextSettings),
+          api_key: displayApiKey,
+        });
         sessionStorage.setItem('banana-settings', JSON.stringify(nextSettings));
+        if (!inboundApiKey && recentBootstrap?.models) {
+          setAvailableModels(recentBootstrap.models);
+          setModelsError(recentBootstrap.modelsError || '');
+        }
 
-        if (inboundApiKey || nextSettings.api_key_length > 0) {
-          await loadAvailableModels({
-            provider: nextSettings.ai_provider_format || 'openai',
-            api_key: inboundApiKey || undefined,
+        if (displayApiKey || nextSettings.api_key_length > 0) {
+          const models = await loadAvailableModels({
+            provider: nextSettings.ai_provider_format || DEFAULT_AI_PROVIDER_FORMAT,
+            api_key: displayApiKey || undefined,
             api_base_url: nextSettings.api_base_url || undefined,
           });
+          if (displayApiKey) {
+            writeUrlApiKeyBootstrap({ apiKey: displayApiKey, settings: nextSettings, models });
+          }
         }
       }
     } catch (error: any) {
@@ -1140,7 +1229,7 @@ export const Settings: React.FC = () => {
         show({ message: t('settings.messages.testServiceTip'), type: 'info' });
         if (api_key || response.data.api_key_length > 0) {
           await loadAvailableModels({
-            provider: response.data.ai_provider_format || formData.ai_provider_format || 'openai',
+            provider: response.data.ai_provider_format || formData.ai_provider_format || DEFAULT_AI_PROVIDER_FORMAT,
             api_key: api_key || undefined,
             api_base_url: response.data.api_base_url || formData.api_base_url || undefined,
           });
@@ -1841,7 +1930,7 @@ export const Settings: React.FC = () => {
               size="sm"
               icon={<RefreshCw size={16} className={isLoadingModels ? 'animate-spin' : ''} />}
               onClick={() => loadAvailableModels({
-                provider: formData.ai_provider_format || 'openai',
+                provider: formData.ai_provider_format || DEFAULT_AI_PROVIDER_FORMAT,
                 api_key: formData.api_key || undefined,
                 api_base_url: formData.api_base_url || undefined,
               })}

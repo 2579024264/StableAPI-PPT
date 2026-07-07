@@ -27,7 +27,6 @@ from services.update_check_service import check_for_update
 logger = logging.getLogger(__name__)
 ALLOWED_PROVIDER_FORMATS = {"openai", "gemini", "volcengine", "lazyllm", "codex"} | LAZYLLM_VENDORS
 STABLEAPI_OPENAI_BASE = "https://stableapi.io/v1"
-STABLEAPI_MODELS_URL = "https://stableapi.io/v1/models"
 
 settings_bp = Blueprint(
     "settings", __name__, url_prefix="/api/settings"
@@ -75,6 +74,16 @@ def _settings_api_credentials(settings, provider):
         settings.api_key if settings.api_key is not None else Config.OPENAI_API_KEY,
         settings.api_base_url if settings.api_base_url is not None else Config.OPENAI_API_BASE,
     )
+
+
+def _models_url_from_api_base(api_base_url):
+    """Build an OpenAI-compatible models endpoint from the configured API base."""
+    base_url = (api_base_url or STABLEAPI_OPENAI_BASE).strip().rstrip("/")
+    if not base_url:
+        base_url = STABLEAPI_OPENAI_BASE
+    if base_url.endswith("/models"):
+        return base_url
+    return f"{base_url}/models"
 
 
 @contextmanager
@@ -594,17 +603,20 @@ def list_provider_models():
     try:
         settings = Settings.get_settings()
         provider = (request.args.get("provider") or settings.ai_provider_format or Config.AI_PROVIDER_FORMAT or "openai").lower()
-        api_key, _api_base_url = _settings_api_credentials(settings, provider)
+        api_key, api_base_url = _settings_api_credentials(settings, provider)
 
         override_key = (request.args.get("api_key") or "").strip()
         if override_key:
             api_key = override_key
+        override_base_url = (request.args.get("api_base_url") or "").strip()
+        if override_base_url:
+            api_base_url = override_base_url
 
         if not api_key:
             return bad_request("API Key 未配置，无法拉取模型列表")
 
         resp = requests.get(
-            STABLEAPI_MODELS_URL,
+            _models_url_from_api_base(api_base_url),
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=20,
         )

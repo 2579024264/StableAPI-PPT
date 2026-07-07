@@ -14,10 +14,13 @@ import { isDesktop } from '@/utils';
 import * as api from '@/api/endpoints';
 
 const URL_API_KEY_LOCAL_STORAGE_KEY = 'stableapi-slides-api-key';
+const DEFAULT_AI_PROVIDER_FORMAT = 'openai';
 const DEFAULT_API_BASE_URL = 'https://stableapi.io/v1';
 const DEFAULT_TEXT_MODEL = 'gemini-3.1-pro-preview';
 const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const DEFAULT_IMAGE_CAPTION_MODEL = 'gemini-3.1-pro-preview';
+const URL_API_KEY_BOOTSTRAP_SESSION_KEY = 'stableapi-slides-url-api-key-bootstrap';
+const URL_API_KEY_BOOTSTRAP_EVENT = 'stableapi-slides:url-api-key-bootstrap';
 
 const normalizeRouterBasename = (basePath?: string): string | undefined => {
   const raw = (basePath || '').trim();
@@ -30,6 +33,17 @@ const UrlApiKeyBootstrap: React.FC<{ show: ReturnType<typeof useToast>['show'] }
   const location = useLocation();
   const navigate = useNavigate();
   const processedRef = useRef(false);
+
+  const publishBootstrapResult = (payload: {
+    apiKey: string;
+    settings?: unknown;
+    models?: string[];
+    modelsError?: string;
+  }) => {
+    const detail = { ...payload, timestamp: Date.now() };
+    sessionStorage.setItem(URL_API_KEY_BOOTSTRAP_SESSION_KEY, JSON.stringify(detail));
+    window.dispatchEvent(new CustomEvent(URL_API_KEY_BOOTSTRAP_EVENT, { detail }));
+  };
 
   useEffect(() => {
     const inboundApiKey = new URLSearchParams(location.search).get('sk')?.trim() || '';
@@ -45,17 +59,38 @@ const UrlApiKeyBootstrap: React.FC<{ show: ReturnType<typeof useToast>['show'] }
     );
 
     localStorage.setItem(URL_API_KEY_LOCAL_STORAGE_KEY, inboundApiKey);
+    publishBootstrapResult({ apiKey: inboundApiKey });
     api.updateSettings({
-      ai_provider_format: 'openai',
+      ai_provider_format: DEFAULT_AI_PROVIDER_FORMAT,
       api_key: inboundApiKey,
       api_base_url: DEFAULT_API_BASE_URL,
       text_model: DEFAULT_TEXT_MODEL,
       image_model: DEFAULT_IMAGE_MODEL,
       image_caption_model: DEFAULT_IMAGE_CAPTION_MODEL,
-    }).then((response) => {
+    }).then(async (response) => {
       if (response.data) {
         sessionStorage.setItem('banana-settings', JSON.stringify(response.data));
-        show({ message: '已从链接保存 API Key，并应用默认模型', type: 'success' });
+        try {
+          const modelsResponse = await api.getAvailableModels({
+            provider: response.data.ai_provider_format || DEFAULT_AI_PROVIDER_FORMAT,
+            api_key: inboundApiKey,
+            api_base_url: response.data.api_base_url || DEFAULT_API_BASE_URL,
+          });
+          publishBootstrapResult({
+            apiKey: inboundApiKey,
+            settings: response.data,
+            models: modelsResponse.data?.models || [],
+          });
+          show({ message: '已从链接保存 API Key，并完成模型列表获取', type: 'success' });
+        } catch (modelError: any) {
+          const modelsError = modelError?.response?.data?.error?.message || modelError?.message || '未知错误';
+          publishBootstrapResult({
+            apiKey: inboundApiKey,
+            settings: response.data,
+            modelsError,
+          });
+          show({ message: `API Key 已保存，但模型列表获取失败: ${modelsError}`, type: 'warning' });
+        }
       }
     }).catch((error: any) => {
       show({

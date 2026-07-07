@@ -936,6 +936,7 @@ def edit_page_image_task(task_id: str, project_id: str, page_id: str,
                          aspect_ratio: str = "16:9", resolution: str = "2K",
                          original_description: str = None,
                          additional_ref_images: List[str] = None,
+                         use_template_reference: bool = False,
                          temp_dir: str = None, app=None):
     """
     Background task for editing a page image
@@ -975,13 +976,21 @@ def edit_page_image_task(task_id: str, project_id: str, page_id: str,
 
             # Edit image
             logger.info(f"🎨 Editing image for page {page_id}...")
+            effective_instruction = edit_instruction
+            if use_template_reference:
+                effective_instruction = (
+                    "请将额外参考图中的模板图片作为主要视觉参考，尽量保持其背景、配色、版式秩序、"
+                    "装饰元素和整体设计语言一致；只替换或调整当前页面中与用户修改指令相关的内容，"
+                    "不要沿用模板图片里的示例文字。用户修改指令："
+                    f"{edit_instruction}"
+                )
             try:
                 with image_resource_limiter.slot(
                     f"edit project={project_id} page={page_id}",
                     on_acquire=mark_generating,
                 ):
                     image = ai_service.edit_image(
-                        edit_instruction,
+                        effective_instruction,
                         current_image_path,
                         aspect_ratio,
                         resolution,

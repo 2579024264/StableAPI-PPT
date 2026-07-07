@@ -1600,13 +1600,13 @@ const normalizeModelList = (payload: any): string[] => {
     : Array.isArray(payload?.data)
       ? payload.data
       : [];
-  return Array.from(new Set(rawModels
+  const models = rawModels
     .map((item: any) => {
       if (typeof item === 'string') return item;
       return item?.id || item?.model || item?.name || '';
     })
-    .filter((model: string) => typeof model === 'string' && model.trim())
-  )).sort((a, b) => a.localeCompare(b));
+    .filter((model: unknown): model is string => typeof model === 'string' && model.trim().length > 0);
+  return Array.from(new Set<string>(models)).sort((a, b) => a.localeCompare(b));
 };
 
 export const getAvailableModels = async (params?: {

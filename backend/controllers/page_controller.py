@@ -641,6 +641,7 @@ def edit_page_image(project_id, page_id):
         
         # 1. Add template image if requested
         context_images = data.get('context_images', {})
+        use_template = False
         if isinstance(context_images, dict):
             use_template = context_images.get('use_template', False)
         else:
@@ -717,6 +718,7 @@ def edit_page_image(project_id, page_id):
             current_app.config['DEFAULT_RESOLUTION'],
             original_description,
             additional_ref_images if additional_ref_images else None,
+            use_template,
             str(temp_dir) if temp_dir else None,
             app
         )
