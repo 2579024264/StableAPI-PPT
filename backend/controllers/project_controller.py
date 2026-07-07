@@ -1135,6 +1135,7 @@ def generate_images(project_id):
         
         data = request.get_json() or {}
         strict_local_files = _strict_local_files_requested(data)
+        temp_template_path, temp_template_dir = _save_temporary_template_from_base64(data)
         
         # Get page_ids from request body and fetch filtered pages
         selected_page_ids = parse_page_ids_from_body(data)

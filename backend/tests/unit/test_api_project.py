@@ -269,7 +269,9 @@ class TestProjectImageGeneration:
 
         data = assert_success_response(response, 202)
         assert data['data']['status'] == 'GENERATING_IMAGES'
-        assert submitted['args'][-1] is True
+        assert submitted['args'][-3] is True
+        assert submitted['args'][-2] is None
+        assert submitted['args'][-1] is None
 
 
 class TestProjectOutlineStream:
