@@ -13,6 +13,7 @@ import {
   getLocalResultIdFromUrl,
   isLocalResultUrl,
   collectLocalPageImagesForExport,
+  getLocalProjectTemplate,
   storeLocalExportBlob,
   storeLocalPageImageBlob,
   strictLocalFilesEnabled,
@@ -54,6 +55,18 @@ const claimStrictLocalImageResults = async (project: Project): Promise<Project> 
   }
 
   return changed ? { ...project, pages } : project;
+};
+
+const mergeLocalProjectTemplate = async (project: Project): Promise<Project> => {
+  if (!project.id) return project;
+  const localTemplate = await getLocalProjectTemplate(project.id);
+  if (!localTemplate?.template_image_url) return project;
+
+  return {
+    ...project,
+    template_image_url: localTemplate.template_image_url,
+    template_image_path: localTemplate.template_image_url,
+  };
 };
 
 const storeI18n = {
@@ -347,7 +360,9 @@ const debouncedUpdatePage = debounce(
     try {
       const response = await api.getProject(targetProjectId);
       if (response.data) {
-        const project = await claimStrictLocalImageResults(normalizeProject(response.data));
+        const project = await mergeLocalProjectTemplate(
+          await claimStrictLocalImageResults(normalizeProject(response.data))
+        );
         devLog('[syncProject] 同步项目数据:', {
           projectId: project.id,
           pagesCount: project.pages?.length || 0,
@@ -403,6 +418,8 @@ const debouncedUpdatePage = debounce(
   updatePageLocal: (pageId, data) => {
     const { currentProject } = get();
     if (!currentProject) return;
+    const projectId = currentProject.id;
+    if (!projectId) return;
 
     const updatedPages = currentProject.pages.map((page) =>
       page.id === pageId ? { ...page, ...data } : page
@@ -1043,6 +1060,8 @@ const debouncedUpdatePage = debounce(
   generatePageImage: async (pageId: string, forceRegenerate: boolean = false) => {
     const { currentProject } = get();
     if (!currentProject) return;
+    const projectId = currentProject.id;
+    if (!projectId) return;
 
     if (get().pageGeneratingTasks[pageId]) {
       devLog(`[单页生成] 页面 ${pageId} 正在生成中，跳过重复请求`);
@@ -1052,7 +1071,13 @@ const debouncedUpdatePage = debounce(
     set({ error: null, warningMessage: null });
 
     try {
-      const response = await api.generatePageImage(currentProject.id, pageId, forceRegenerate);
+      const response = await api.generatePageImage(
+        projectId,
+        pageId,
+        forceRegenerate,
+        undefined,
+        currentProject.template_image_path || currentProject.template_image_url,
+      );
       const taskId = response.data?.task_id;
 
       if (taskId) {
@@ -1080,6 +1105,8 @@ const debouncedUpdatePage = debounce(
   generateImages: async (pageIds?: string[]) => {
     const { currentProject, pageGeneratingTasks } = get();
     if (!currentProject) return;
+    const projectId = currentProject.id;
+    if (!projectId) return;
 
     // 确定要生成的页面ID列表
     const targetPageIds = pageIds || currentProject.pages.map(p => p.id).filter((id): id is string => !!id);
@@ -1100,7 +1127,12 @@ const debouncedUpdatePage = debounce(
     
     try {
       // 调用批量生成 API
-      const response = await api.generateImages(currentProject.id, undefined, pageIds);
+      const response = await api.generateImages(
+        projectId,
+        undefined,
+        pageIds,
+        currentProject.template_image_path || currentProject.template_image_url,
+      );
       const taskId = response.data?.task_id;
       
       if (taskId) {

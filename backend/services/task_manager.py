@@ -546,7 +546,9 @@ def generate_images_task(task_id: str, project_id: str, ai_service, file_service
                         language: str = None,
                         page_ids: list = None,
                         image_prompt_field_names: Optional[set] = None,
-                        strict_local_results: bool = False):
+                        strict_local_results: bool = False,
+                        template_image_path: str = None,
+                        temp_template_dir: str = None):
     """
     Background task for generating page images
     Based on demo.py gen_images_parallel()
@@ -659,7 +661,7 @@ def generate_images_task(task_id: str, project_id: str, ai_service, file_service
                             # 在子线程中动态获取模板路径，确保使用最新模板
                             page_ref_image_path = None
                             if use_template:
-                                page_ref_image_path = file_service.get_template_path(project_id)
+                                page_ref_image_path = template_image_path or file_service.get_template_path(project_id)
                                 # 注意：如果有风格描述，即使没有模板图片也允许生成
                                 # 这个检查已经在 controller 层完成，这里不再检查
                             
@@ -777,6 +779,9 @@ def generate_images_task(task_id: str, project_id: str, ai_service, file_service
                 task.error_message = str(e)
                 task.completed_at = datetime.utcnow()
                 db.session.commit()
+        finally:
+            if temp_template_dir:
+                shutil.rmtree(temp_template_dir, ignore_errors=True)
 
 
 def generate_single_page_image_task(task_id: str, project_id: str, page_id: str, 
@@ -786,7 +791,9 @@ def generate_single_page_image_task(task_id: str, project_id: str, page_id: str,
                                     extra_requirements: str = None,
                                     language: str = None,
                                     image_prompt_field_names: Optional[set] = None,
-                                    strict_local_results: bool = False):
+                                    strict_local_results: bool = False,
+                                    template_image_path: str = None,
+                                    temp_template_dir: str = None):
     """
     Background task for generating a single page image
     
@@ -851,7 +858,7 @@ def generate_single_page_image_task(task_id: str, project_id: str, page_id: str,
             # Get template path if use_template
             ref_image_path = None
             if use_template:
-                ref_image_path = file_service.get_template_path(project_id)
+                ref_image_path = template_image_path or file_service.get_template_path(project_id)
                 # 注意：如果有风格描述，即使没有模板图片也允许生成
                 # 这个检查已经在 controller 层完成，这里不再检查
             
@@ -929,6 +936,9 @@ def generate_single_page_image_task(task_id: str, project_id: str, page_id: str,
             if page:
                 page.status = 'FAILED'
                 db.session.commit()
+        finally:
+            if temp_template_dir:
+                shutil.rmtree(temp_template_dir, ignore_errors=True)
 
 
 def edit_page_image_task(task_id: str, project_id: str, page_id: str,

@@ -2,6 +2,7 @@
 Page Controller - handles page-related endpoints
 """
 import logging
+import base64
 from flask import Blueprint, request, current_app
 from models import db, Project, Page, PageImageVersion, Task
 from utils import success_response, error_response, not_found, bad_request
@@ -16,6 +17,8 @@ from services.task_manager import (
 from datetime import datetime
 from pathlib import Path
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import BadRequest
+from PIL import Image
 import shutil
 import tempfile
 import json
@@ -33,6 +36,42 @@ def _strict_local_files_requested(data=None) -> bool:
     if data:
         return bool(data.get('strict_local_files'))
     return False
+
+
+def _save_temporary_template_from_base64(data=None):
+    """Decode a browser-local template image for the lifetime of an async task."""
+    if not data:
+        return None, None
+
+    raw = (data.get('template_image_base64') or '').strip()
+    if not raw:
+        return None, None
+
+    if ',' in raw and raw.lower().startswith('data:image/'):
+        raw = raw.split(',', 1)[1]
+
+    try:
+        image_bytes = base64.b64decode(raw, validate=True)
+    except Exception as exc:
+        raise BadRequest("Invalid template_image_base64") from exc
+
+    original_name = secure_filename(data.get('template_image_name') or 'template.png')
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in {'.png', '.jpg', '.jpeg', '.gif', '.webp'}:
+        suffix = '.png'
+
+    temp_dir = tempfile.mkdtemp(prefix='template_', dir=current_app.config['UPLOAD_FOLDER'])
+    template_path = Path(temp_dir) / f'template{suffix}'
+    template_path.write_bytes(image_bytes)
+
+    try:
+        with Image.open(template_path) as image:
+            image.verify()
+    except Exception as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise BadRequest("Invalid template image") from exc
+
+    return str(template_path), temp_dir
 
 
 @page_bp.route('/<project_id>/pages', methods=['POST'])
@@ -374,8 +413,17 @@ def generate_page_description(project_id, page_id):
         
         return success_response(page.to_dict())
     
+    except BadRequest as e:
+        db.session.rollback()
+        temp_dir = locals().get('temp_template_dir')
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        return bad_request(e.description or str(e))
     except Exception as e:
         db.session.rollback()
+        temp_dir = locals().get('temp_template_dir')
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return error_response('AI_SERVICE_ERROR', str(e), 503)
 
 
@@ -405,6 +453,7 @@ def generate_page_image(project_id, page_id):
         force_regenerate = data.get('force_regenerate', False)
         language = data.get('language', current_app.config.get('OUTPUT_LANGUAGE', 'zh'))
         strict_local_files = _strict_local_files_requested(data)
+        temp_template_path, temp_template_dir = _save_temporary_template_from_base64(data)
         
         # Check if already generated
         if page.generated_image_path and not force_regenerate:
@@ -472,6 +521,8 @@ def generate_page_image(project_id, page_id):
         ref_image_path = None
         if use_template:
             ref_image_path = file_service.get_template_path(project_id)
+            if not ref_image_path:
+                ref_image_path = temp_template_path
         
         # 检查是否有模板图片或风格描述
         # 如果都没有，则返回错误
@@ -545,7 +596,9 @@ def generate_page_image(project_id, page_id):
             combined_requirements if combined_requirements.strip() else None,
             language,
             image_prompt_field_names,
-            strict_local_files
+            strict_local_files,
+            temp_template_path,
+            temp_template_dir,
         )
         
         # Return task_id immediately
@@ -555,8 +608,17 @@ def generate_page_image(project_id, page_id):
             'status': 'PENDING'
         }, status_code=202)
     
+    except BadRequest as e:
+        db.session.rollback()
+        temp_dir = locals().get('temp_template_dir')
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        return bad_request(e.description or str(e))
     except Exception as e:
         db.session.rollback()
+        temp_dir = locals().get('temp_template_dir')
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return error_response('AI_SERVICE_ERROR', str(e), 503)
 
 

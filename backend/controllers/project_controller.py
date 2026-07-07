@@ -2,16 +2,19 @@
 Project Controller - handles project-related endpoints
 """
 import json
+import base64
 import logging
 import os
 import re
 import subprocess
+import tempfile
 import traceback
 from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context, send_file
+from PIL import Image
 from sqlalchemy import desc
 from utils.validators import normalize_aspect_ratio
 from sqlalchemy.orm import joinedload
@@ -196,6 +199,43 @@ def _strict_local_files_requested(data: dict | None = None) -> bool:
     if data:
         return bool(data.get('strict_local_files'))
     return False
+
+
+def _save_temporary_template_from_base64(data: dict | None) -> tuple[str | None, str | None]:
+    """Decode a browser-local template image for the lifetime of an async task."""
+    if not data:
+        return None, None
+
+    raw = (data.get('template_image_base64') or '').strip()
+    if not raw:
+        return None, None
+
+    if ',' in raw and raw.lower().startswith('data:image/'):
+        raw = raw.split(',', 1)[1]
+
+    try:
+        image_bytes = base64.b64decode(raw, validate=True)
+    except Exception as exc:
+        raise BadRequest("Invalid template_image_base64") from exc
+
+    original_name = secure_filename(data.get('template_image_name') or 'template.png')
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in {'.png', '.jpg', '.jpeg', '.gif', '.webp'}:
+        suffix = '.png'
+
+    temp_dir = tempfile.mkdtemp(prefix='template_', dir=current_app.config['UPLOAD_FOLDER'])
+    template_path = Path(temp_dir) / f'template{suffix}'
+    template_path.write_bytes(image_bytes)
+
+    try:
+        with Image.open(template_path) as image:
+            image.verify()
+    except Exception as exc:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise BadRequest("Invalid template image") from exc
+
+    return str(template_path), temp_dir
 
 
 def _smart_merge_pages(project_id, pages_data):
@@ -528,6 +568,7 @@ def generate_outline(project_id):
         # Get request data and language parameter
         data = request.get_json() or {}
         strict_local_files = _strict_local_files_requested(data)
+        temp_template_path, temp_template_dir = _save_temporary_template_from_base64(data)
         language = data.get('language', current_app.config.get('OUTPUT_LANGUAGE', 'zh'))
         
         # Get reference files content and create project context
@@ -1109,6 +1150,8 @@ def generate_images(project_id):
         ref_image_path = None
         if use_template:
             ref_image_path = file_service.get_template_path(project_id)
+            if not ref_image_path:
+                ref_image_path = temp_template_path
         
         if not ref_image_path and not project.template_style:
             return bad_request("请先上传模板图片或添加风格描述。")
@@ -1172,7 +1215,9 @@ def generate_images(project_id):
             language,
             selected_page_ids if selected_page_ids else None,
             image_prompt_field_names,
-            strict_local_files
+            strict_local_files,
+            temp_template_path,
+            temp_template_dir,
         )
         
         # Update project status
@@ -1185,8 +1230,19 @@ def generate_images(project_id):
             'total_pages': len(pages)
         }, status_code=202)
     
+    except BadRequest as e:
+        db.session.rollback()
+        temp_dir = locals().get('temp_template_dir')
+        if temp_dir:
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        return bad_request(e.description or str(e))
     except Exception as e:
         db.session.rollback()
+        temp_dir = locals().get('temp_template_dir')
+        if temp_dir:
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
         logger.error(f"generate_images failed: {str(e)}", exc_info=True)
         return error_response('SERVER_ERROR', str(e), 500)
 

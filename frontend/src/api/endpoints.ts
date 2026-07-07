@@ -4,6 +4,8 @@ import type { Settings } from '../types/index';
 import {
   deleteLocalMaterial,
   deleteLocalUserTemplate,
+  getLocalFile,
+  getLocalProjectTemplate,
   getLocalMaterialByUrl,
   listLocalMaterials,
   listLocalUserTemplates,
@@ -12,6 +14,7 @@ import {
   uploadLocalProjectTemplate,
   uploadLocalUserTemplate,
 } from '@/services/strictLocalFiles';
+import { getLocalFileIdFromUrl, isLocalFileUrl } from '@/services/localFileUrls';
 
 export type { Material };
 
@@ -59,21 +62,37 @@ export const uploadTemplate = async (
   projectId: string,
   templateImage: File
 ): Promise<ApiResponse<{ template_image_url: string }>> => {
-  if (strictLocalFilesEnabled) {
-    return {
-      success: true,
-      data: { template_image_url: await uploadLocalProjectTemplate(templateImage, projectId) },
-    };
-  }
+  return {
+    success: true,
+    data: { template_image_url: await uploadLocalProjectTemplate(templateImage, projectId) },
+  };
+};
 
-  const formData = new FormData();
-  formData.append('template_image', templateImage);
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Failed to read template image'));
+    reader.readAsDataURL(file);
+  });
 
-  const response = await apiClient.post<ApiResponse<{ template_image_url: string }>>(
-    `/api/projects/${projectId}/template`,
-    formData
-  );
-  return response.data;
+const buildLocalTemplatePayload = async (
+  projectId: string,
+  templateImageUrl?: string | null,
+): Promise<{ template_image_base64?: string; template_image_name?: string }> => {
+  const localTemplateUrl = isLocalFileUrl(templateImageUrl)
+    ? templateImageUrl
+    : (await getLocalProjectTemplate(projectId))?.template_image_url;
+
+  if (!localTemplateUrl || !isLocalFileUrl(localTemplateUrl)) return {};
+
+  const file = await getLocalFile(getLocalFileIdFromUrl(localTemplateUrl));
+  if (!file) return {};
+
+  return {
+    template_image_base64: await fileToDataUrl(file),
+    template_image_name: file.name || 'template.png',
+  };
 };
 
 /**
@@ -434,11 +453,17 @@ export const refineDescriptions = async (
  * @param language 输出语言（可选，默认从 sessionStorage 获取）
  * @param pageIds 可选的页面ID列表，如果不提供则生成所有页面
  */
-export const generateImages = async (projectId: string, language?: OutputLanguage, pageIds?: string[]): Promise<ApiResponse> => {
+export const generateImages = async (
+  projectId: string,
+  language?: OutputLanguage,
+  pageIds?: string[],
+  templateImageUrl?: string | null,
+): Promise<ApiResponse> => {
   const lang = language || await getStoredOutputLanguage();
+  const localTemplatePayload = await buildLocalTemplatePayload(projectId, templateImageUrl);
   const response = await apiClient.post<ApiResponse>(
     `/api/projects/${projectId}/generate/images`,
-    { language: lang, page_ids: pageIds }
+    { language: lang, page_ids: pageIds, ...localTemplatePayload }
   );
   return response.data;
 };
@@ -450,12 +475,14 @@ export const generatePageImage = async (
   projectId: string,
   pageId: string,
   forceRegenerate: boolean = false,
-  language?: OutputLanguage
+  language?: OutputLanguage,
+  templateImageUrl?: string | null,
 ): Promise<ApiResponse> => {
   const lang = language || await getStoredOutputLanguage();
+  const localTemplatePayload = await buildLocalTemplatePayload(projectId, templateImageUrl);
   const response = await apiClient.post<ApiResponse>(
     `/api/projects/${projectId}/pages/${pageId}/generate/image`,
-    { force_regenerate: forceRegenerate, language: lang }
+    { force_regenerate: forceRegenerate, language: lang, ...localTemplatePayload }
   );
   return response.data;
 };
@@ -1286,48 +1313,22 @@ export const uploadUserTemplate = async (
   templateImage: File,
   name?: string
 ): Promise<ApiResponse<UserTemplate>> => {
-  if (strictLocalFilesEnabled) {
-    return { success: true, data: await uploadLocalUserTemplate(templateImage, name) };
-  }
-
-  const formData = new FormData();
-  formData.append('template_image', templateImage);
-  if (name) {
-    formData.append('name', name);
-  }
-
-  const response = await apiClient.post<ApiResponse<UserTemplate>>(
-    '/api/user-templates',
-    formData
-  );
-  return response.data;
+  return { success: true, data: await uploadLocalUserTemplate(templateImage, name) };
 };
 
 /**
  * 获取用户模板列表
  */
 export const listUserTemplates = async (): Promise<ApiResponse<{ templates: UserTemplate[] }>> => {
-  if (strictLocalFilesEnabled) {
-    return { success: true, data: { templates: await listLocalUserTemplates() } };
-  }
-
-  const response = await apiClient.get<ApiResponse<{ templates: UserTemplate[] }>>(
-    '/api/user-templates'
-  );
-  return response.data;
+  return { success: true, data: { templates: await listLocalUserTemplates() } };
 };
 
 /**
  * 删除用户模板
  */
 export const deleteUserTemplate = async (templateId: string): Promise<ApiResponse> => {
-  if (strictLocalFilesEnabled) {
-    await deleteLocalUserTemplate(templateId);
-    return { success: true };
-  }
-
-  const response = await apiClient.delete<ApiResponse>(`/api/user-templates/${templateId}`);
-  return response.data;
+  await deleteLocalUserTemplate(templateId);
+  return { success: true };
 };
 
 // ===== 参考文件相关 API =====

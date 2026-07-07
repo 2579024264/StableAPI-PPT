@@ -159,6 +159,10 @@ export function normalizeErrorMessage(errorMessage: string | null | undefined): 
     return isZh
       ? '当前项目还没有模板，请先点击页面工具栏的"更换模板"按钮，选择或上传一张模板图片后再生成。'
       : 'No template found. Please select or upload a template image first.';
+  } else if (rawMessage.includes('无权访问') && rawMessage.includes('分组')) {
+    return isZh
+      ? 'NewAPI 拒绝访问：当前 API Key 所属分组无权访问所选模型。请在 NewAPI 后台调整该 Key 的分组/模型/渠道权限，或换用有权限的 Key；本工程不会依赖 NewAPI 的分组或渠道名称。'
+      : 'NewAPI access denied: the current API key group cannot access the selected model. Update the key group/model/channel permissions in NewAPI or use an authorized key; this app does not depend on NewAPI group or channel names.';
   } else if (message.includes('page must have description content')) {
     return isZh
       ? '该页面还没有描述内容，请先在"编辑页面描述"步骤为此页生成或填写描述。'

@@ -24,6 +24,14 @@ describe('normalizeErrorMessage', () => {
     expect(message).toContain('OpenAI');
   });
 
+  test('maps newapi group permission failures to model permission guidance', () => {
+    const message = normalizeErrorMessage("Error code: 403 - {'error': {'message': '无权访问 PPT专用分组 分组'}}");
+    expect(message).toContain('NewAPI');
+    expect(message).toContain('分组');
+    expect(message).toContain('所选模型');
+    expect(message).toContain('不会依赖');
+  });
+
   test('maps codex ssl eof failures to retry guidance', () => {
     const message = normalizeErrorMessage("HTTPSConnectionPool(host='chatgpt.com', port=443): Max retries exceeded with url: /backend-api/codex/responses (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1017)')))");
     expect(message).toContain('Codex');

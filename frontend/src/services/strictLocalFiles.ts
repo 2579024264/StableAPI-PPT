@@ -98,8 +98,16 @@ export const uploadLocalProjectTemplate = async (
   return toLocalFileUrl(record.id);
 };
 
+export const getLocalProjectTemplate = async (
+  projectId: string,
+): Promise<UserTemplate | undefined> => {
+  const records = await localFileStore.listFiles({ kind: 'template', projectId });
+  const projectTemplate = records.find(record => record.metadata?.scope === 'project-template');
+  return projectTemplate ? recordToUserTemplate(projectTemplate) : undefined;
+};
+
 export const listLocalUserTemplates = async (): Promise<UserTemplate[]> => {
-  const records = await localFileStore.listFiles({ kind: 'template', projectId: 'all' });
+  const records = await localFileStore.listFiles({ kind: 'template', projectId: null });
   return Promise.all(records.map(recordToUserTemplate));
 };
 
