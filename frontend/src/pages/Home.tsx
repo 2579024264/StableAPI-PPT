@@ -566,6 +566,13 @@ export const Home: React.FC = () => {
     }
   };
 
+  const handleTemplateSaved = useCallback((template: UserTemplate) => {
+    setUserTemplates(prev => [
+      template,
+      ...prev.filter(item => item.template_id !== template.template_id),
+    ]);
+  }, []);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
@@ -1160,6 +1167,7 @@ export const Home: React.FC = () => {
             ) : (
               <TemplateSelector
                 onSelect={handleTemplateSelect}
+                onTemplateSaved={handleTemplateSaved}
                 selectedTemplateId={selectedTemplateId}
                 selectedPresetTemplateId={selectedPresetTemplateId}
                 showUpload={true} // 在主页上传的模板保存到用户模板库

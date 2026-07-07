@@ -46,6 +46,7 @@ import { ImagePlus, X } from 'lucide-react';
 
 interface TemplateSelectorProps {
   onSelect: (templateFile: File | null, templateId?: string) => void | Promise<void>;
+  onTemplateSaved?: (template: UserTemplate) => void;
   selectedTemplateId?: string | null;
   selectedPresetTemplateId?: string | null;
   showUpload?: boolean;
@@ -54,6 +55,7 @@ interface TemplateSelectorProps {
 
 export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
   onSelect,
+  onTemplateSaved,
   selectedTemplateId,
   selectedPresetTemplateId,
   showUpload = true,
@@ -101,6 +103,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
           if (response.data) {
             const template = response.data;
             setUserTemplates(prev => [template, ...prev]);
+            onTemplateSaved?.(template);
             onSelect(null, template.template_id);
             show({ message: t('template.messages.uploadSuccess'), type: 'success' });
           }
@@ -110,6 +113,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
             if (response.data) {
               const template = response.data;
               setUserTemplates(prev => [template, ...prev]);
+              onTemplateSaved?.(template);
               onSelect(file, template.template_id);
               show({ message: t('material.messages.savedToLibrary'), type: 'success' });
             }
@@ -157,6 +161,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
         if (response.data) {
           const template = response.data;
           setUserTemplates(prev => [template, ...prev]);
+          onTemplateSaved?.(template);
           onSelect(file, template.template_id);
           show({ message: t('material.messages.savedToLibrary'), type: 'success' });
         }
