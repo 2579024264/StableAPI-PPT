@@ -1531,7 +1531,9 @@ const debouncedUpdatePage = debounce(
         if (images.length === 0) {
           throw new Error(t('store.exportLinkFailed'));
         }
-        await api.exportLocalPPTX(currentProject.id!, images);
+        await api.exportLocalPPTX(currentProject.id!, images, {
+          aspectRatio: currentProject.image_aspect_ratio,
+        });
         return;
       }
 
@@ -1566,7 +1568,7 @@ const debouncedUpdatePage = debounce(
         if (images.length === 0) {
           throw new Error(t('store.exportLinkFailed'));
         }
-        await api.exportLocalPDF(currentProject.id!, images);
+        await api.exportLocalPDF(currentProject.id!, images, undefined, currentProject.image_aspect_ratio);
         return;
       }
 
@@ -1601,11 +1603,7 @@ const debouncedUpdatePage = debounce(
       // startAsyncTask 中的 pollTask 会在任务完成时自动处理下载
       await startAsyncTask(async () => {
         if (strictLocalFilesEnabled) {
-          const images = await collectStrictLocalPageImagesForExport(currentProject, pageIds);
-          if (images.length === 0) {
-            throw new Error(t('store.exportLinkFailed'));
-          }
-          return api.exportLocalEditablePPTX(projectId, images, { filename });
+          throw new Error('导出可编辑 PPTX 需要服务端处理文件数据；严格本地模式下已禁用，避免上传用户图片或文件。');
         }
         return api.exportEditablePPTX(projectId, filename, pageIds);
       });

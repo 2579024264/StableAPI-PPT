@@ -16,6 +16,12 @@ import {
 } from '@/services/strictLocalFiles';
 import { getLocalFileIdFromUrl, isLocalFileUrl } from '@/services/localFileUrls';
 import { localProjectStore } from '@/services/localProjectStore';
+import {
+  createStrictLocalExportUnavailableError,
+  exportBrowserImages,
+  exportBrowserPDF,
+  exportBrowserPPTX,
+} from '@/services/browserExport';
 
 export type { Material };
 
@@ -944,18 +950,6 @@ export interface LocalExportImageInput {
   file: File;
 }
 
-const appendLocalExportImages = (
-  formData: FormData,
-  images: LocalExportImageInput[],
-  exportPageIds?: string[],
-): void => {
-  formData.append('page_ids', (exportPageIds || images.map((image) => image.pageId)).join(','));
-  images.forEach((image, index) => {
-    formData.append('images', image.file, image.file.name || `slide_${index + 1}.png`);
-    formData.append(`page_ids[${index}]`, image.pageId);
-  });
-};
-
 export const downloadBlob = (blob: Blob, filename: string): void => {
   const href = URL.createObjectURL(blob);
   const link = Object.assign(document.createElement('a'), {
@@ -973,26 +967,17 @@ export const exportLocalPPTX = async (
   images: LocalExportImageInput[],
   options?: {
     filename?: string;
+    aspectRatio?: string;
     transitionEnabled?: boolean;
     transitionEffects?: string[];
   }
 ): Promise<ApiResponse<{ download_url: string }>> => {
-  const formData = new FormData();
-  appendLocalExportImages(formData, images);
-  if (options?.filename) formData.append('filename', options.filename);
-
-  const query = buildExportQuery({
-    transition_enabled: options?.transitionEnabled ? true : undefined,
-    transition_effects: options?.transitionEnabled ? options.transitionEffects : undefined,
+  return exportBrowserPPTX(projectId, images, {
+    filename: options?.filename,
+    aspectRatio: options?.aspectRatio,
+    transitionEnabled: options?.transitionEnabled,
+    transitionEffects: options?.transitionEffects,
   });
-
-  const { data: blob } = await apiClient.post<Blob>(
-    `/api/projects/${projectId}/export/local/pptx${query}`,
-    formData,
-    { responseType: 'blob' },
-  );
-  downloadBlob(blob, options?.filename || `presentation_${projectId}.pptx`);
-  return { success: true, data: { download_url: '' } };
 };
 
 /**
@@ -1015,18 +1000,9 @@ export const exportLocalPDF = async (
   projectId: string,
   images: LocalExportImageInput[],
   filename?: string,
+  aspectRatio?: string,
 ): Promise<ApiResponse<{ download_url: string }>> => {
-  const formData = new FormData();
-  appendLocalExportImages(formData, images);
-  if (filename) formData.append('filename', filename);
-
-  const { data: blob } = await apiClient.post<Blob>(
-    `/api/projects/${projectId}/export/local/pdf`,
-    formData,
-    { responseType: 'blob' },
-  );
-  downloadBlob(blob, filename || `presentation_${projectId}.pdf`);
-  return { success: true, data: { download_url: '' } };
+  return exportBrowserPDF(projectId, images, filename, aspectRatio);
 };
 
 /**
@@ -1047,19 +1023,7 @@ export const exportLocalImages = async (
   projectId: string,
   images: LocalExportImageInput[],
 ): Promise<ApiResponse<{ download_url: string }>> => {
-  const formData = new FormData();
-  appendLocalExportImages(formData, images);
-
-  const { data: blob } = await apiClient.post<Blob>(
-    `/api/projects/${projectId}/export/local/images`,
-    formData,
-    { responseType: 'blob' },
-  );
-  const filename = images.length === 1
-    ? images[0].file.name || `slide_${images[0].pageId}.png`
-    : `slides_${projectId}.zip`;
-  downloadBlob(blob, filename);
-  return { success: true, data: { download_url: '' } };
+  return exportBrowserImages(projectId, images);
 };
 
 /**
@@ -1091,17 +1055,10 @@ export const exportLocalEditablePPTX = async (
     maxWorkers?: number;
   },
 ): Promise<ApiResponse<{ task_id: string }>> => {
-  const formData = new FormData();
-  appendLocalExportImages(formData, images);
-  if (options?.filename) formData.append('filename', options.filename);
-  if (options?.maxDepth != null) formData.append('max_depth', String(options.maxDepth));
-  if (options?.maxWorkers != null) formData.append('max_workers', String(options.maxWorkers));
-
-  const response = await apiClient.post<ApiResponse<{ task_id: string }>>(
-    `/api/projects/${projectId}/export/local/editable-pptx`,
-    formData,
-  );
-  return response.data;
+  void projectId;
+  void images;
+  void options;
+  throw createStrictLocalExportUnavailableError('导出可编辑 PPTX');
 };
 
 /**
@@ -1194,26 +1151,10 @@ export const exportLocalVideo = async (
   images: LocalExportImageInput[],
   options?: ExportVideoOptions,
 ): Promise<ApiResponse<{ task_id: string }>> => {
-  const formData = new FormData();
-  appendLocalExportImages(formData, images, options?.pageIds);
-  if (options?.filename) formData.append('filename', options.filename);
-  if (options?.voice) formData.append('voice', options.voice);
-  if (options?.rate) formData.append('rate', options.rate);
-  if (options?.speed != null) formData.append('speed', String(options.speed));
-  if (options?.language) formData.append('language', options.language);
-  formData.append('generate_narration', String(options?.generateNarration ?? true));
-  formData.append('enable_ken_burns', String(options?.enableKenBurns ?? false));
-  formData.append('include_no_image_pages', String(options?.includeNoImagePages ?? false));
-  if (options?.presentationTopic) formData.append('presentation_topic', options.presentationTopic);
-  if (options?.narrationConfig) {
-    formData.append('narration_config', JSON.stringify(options.narrationConfig));
-  }
-
-  const response = await apiClient.post<ApiResponse<{ task_id: string }>>(
-    `/api/projects/${projectId}/export/local/video`,
-    formData,
-  );
-  return response.data;
+  void projectId;
+  void images;
+  void options;
+  throw createStrictLocalExportUnavailableError('导出讲解视频');
 };
 
 // ===== 素材生成 =====

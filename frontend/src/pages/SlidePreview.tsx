@@ -27,6 +27,7 @@ const previewI18n = {
       title: "预览", pageCount: "共 {{count}} 页", export: "导出", exportTasks: "导出任务",
       exportPptx: "导出为 PPTX", exportPdf: "导出为 PDF",
       exportEditablePptx: "导出可编辑 PPTX", exportImages: "导出为图片",
+      strictLocalEditableExportUnavailable: "严格本地模式下，可编辑 PPTX 需要服务端版面分析，已禁用以避免上传用户图片或文件。",
       pptxExportTitle: "PPTX 导出设置",
       pptxExportSubtitle: "在导出前确认本次 PPTX 的播放设置。",
       pptxTransitionToggle: "启用页面切换动画",
@@ -148,6 +149,7 @@ const previewI18n = {
       title: "Preview", pageCount: "{{count}} pages", export: "Export", exportTasks: "Export Tasks",
       exportPptx: "Export as PPTX", exportPdf: "Export as PDF",
       exportEditablePptx: "Export Editable PPTX", exportImages: "Export as Images",
+      strictLocalEditableExportUnavailable: "Editable PPTX requires server-side layout analysis and is disabled in strict local mode to avoid uploading user images or files.",
       pptxExportTitle: "PPTX Export Settings",
       pptxExportSubtitle: "Confirm playback settings before exporting this PPTX.",
       pptxTransitionToggle: "Enable slide transitions",
@@ -284,7 +286,7 @@ import { SlideCard } from '@/components/preview/SlideCard';
 import { useProjectStore } from '@/store/useProjectStore';
 import { useExportTasksStore, type ExportTaskType } from '@/store/useExportTasksStore';
 import { getImageUrl } from '@/api/client';
-import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate, exportPPTX as apiExportPPTX, exportPDF as apiExportPDF, exportImages as apiExportImages, exportLocalPPTX as apiExportLocalPPTX, exportLocalPDF as apiExportLocalPDF, exportLocalImages as apiExportLocalImages, exportEditablePPTX as apiExportEditablePPTX, exportLocalEditablePPTX as apiExportLocalEditablePPTX, exportVideo as apiExportVideo, exportLocalVideo as apiExportLocalVideo, getSettings, getElevenLabsVoices, getLocalResultBlob } from '@/api/endpoints';
+import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate, exportPPTX as apiExportPPTX, exportPDF as apiExportPDF, exportImages as apiExportImages, exportLocalPPTX as apiExportLocalPPTX, exportLocalPDF as apiExportLocalPDF, exportLocalImages as apiExportLocalImages, exportEditablePPTX as apiExportEditablePPTX, exportVideo as apiExportVideo, getSettings, getElevenLabsVoices, getLocalResultBlob } from '@/api/endpoints';
 import type { ImageVersion, DescriptionContent, ExportExtractorMethod, ExportInpaintMethod, Page, NarrationConfig } from '@/types';
 import { normalizeErrorMessage } from '@/utils';
 import { collectLocalPageImagesForExport, strictLocalFilesEnabled } from '@/services/strictLocalFiles';
@@ -1228,11 +1230,12 @@ export const SlidePreview: React.FC = () => {
 
           if (type === 'pptx') {
             await apiExportLocalPPTX(projectId, images, {
+              aspectRatio,
               transitionEnabled: options?.pptxTransitionEnabled,
               transitionEffects: options?.pptxTransitionEffects,
             });
           } else if (type === 'pdf') {
-            await apiExportLocalPDF(projectId, images);
+            await apiExportLocalPDF(projectId, images, undefined, aspectRatio);
           } else {
             await apiExportLocalImages(projectId, images);
           }
@@ -1272,6 +1275,10 @@ export const SlidePreview: React.FC = () => {
           triggerDownload(downloadUrl);
         }
       } else if (type === 'editable-pptx') {
+        if (strictLocalFilesEnabled) {
+          throw new Error(t('preview.strictLocalEditableExportUnavailable'));
+        }
+
         // Async export - create processing task and start polling
         addTask({
           id: exportTaskId,
@@ -1284,16 +1291,7 @@ export const SlidePreview: React.FC = () => {
         
         show({ message: t('slidePreview.exportStarted'), type: 'success' });
         
-        let response;
-        if (strictLocalFilesEnabled && currentProject) {
-          const images = await collectImagesForExport(pageIds);
-          if (images.length === 0) {
-            throw new Error(t('preview.disabledExportTip', { count: exportMissingImageCount || 1 }));
-          }
-          response = await apiExportLocalEditablePPTX(projectId, images);
-        } else {
-          response = await apiExportEditablePPTX(projectId, undefined, pageIds);
-        }
+        const response = await apiExportEditablePPTX(projectId, undefined, pageIds);
         const taskId = response.data?.task_id;
         
         if (taskId) {
@@ -1311,6 +1309,10 @@ export const SlidePreview: React.FC = () => {
           pollExportTask(exportTaskId, projectId, taskId);
         }
       } else if (type === 'video') {
+        if (strictLocalFilesEnabled) {
+          throw new Error('导出讲解视频需要服务端处理文件数据；严格本地模式下已禁用，避免上传用户图片或文件。');
+        }
+
         // Async export - create processing task and start polling
         addTask({
           id: exportTaskId,
@@ -1325,11 +1327,6 @@ export const SlidePreview: React.FC = () => {
 
         const activeVoice = elevenLabsEnabled ? elevenLabsVoiceId : videoVoice;
         const voiceLang = elevenLabsEnabled ? 'zh' : (VIDEO_VOICE_OPTIONS.flatMap(g => g.voices).find(v => v.id === videoVoice)?.lang || 'zh');
-        const videoExportPageIds = pageIds || (currentProject?.pages || [])
-          .slice()
-          .sort((a, b) => a.order_index - b.order_index)
-          .map(page => page.id || page.page_id)
-          .filter((id): id is string => Boolean(id));
         const videoOptions = {
           pageIds,
           enableKenBurns: videoEnableKenBurns,
@@ -1344,13 +1341,7 @@ export const SlidePreview: React.FC = () => {
             presentation_topic: videoNarrationConfig.presentation_topic,
           },
         };
-        const response = strictLocalFilesEnabled && currentProject
-          ? await apiExportLocalVideo(
-              projectId,
-              await collectImagesForExport(videoExportPageIds),
-              { ...videoOptions, pageIds: videoExportPageIds },
-            )
-          : await apiExportVideo(projectId, videoOptions);
+        const response = await apiExportVideo(projectId, videoOptions);
         const taskId = response.data?.task_id;
 
         if (taskId) {
@@ -1601,6 +1592,9 @@ export const SlidePreview: React.FC = () => {
   const exportRangeMissingTip = exportMissingImageCount > 0
     ? t('preview.disabledExportTip', { count: exportMissingImageCount })
     : undefined;
+  const editableExportUnavailableTip = strictLocalFilesEnabled
+    ? t('preview.strictLocalEditableExportUnavailable')
+    : exportRangeMissingTip;
   const isEnglishUi = i18n.language?.startsWith('en');
   const getNarrationOptionLabel = (options: Array<{ value: string; zh: string; en: string }>, value: string) => {
     const match = options.find(item => item.value === value);
@@ -1773,12 +1767,16 @@ export const SlidePreview: React.FC = () => {
                 </button>
                 <button
                   onClick={() => {
+                    if (strictLocalFilesEnabled) {
+                      show({ message: t('preview.strictLocalEditableExportUnavailable'), type: 'warning' });
+                      return;
+                    }
                     setShowExportMenu(false);
                     setEditablePptxDialogIconTransparent(false);
                     setShowEditablePptxDialog(true);
                   }}
-                  disabled={!exportRangeHasAllImages}
-                  title={exportRangeMissingTip}
+                  disabled={strictLocalFilesEnabled || !exportRangeHasAllImages}
+                  title={editableExportUnavailableTip}
                   className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-background-hover transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {t('preview.exportEditablePptx')}
