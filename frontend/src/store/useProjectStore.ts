@@ -1603,7 +1603,11 @@ const debouncedUpdatePage = debounce(
       // startAsyncTask 中的 pollTask 会在任务完成时自动处理下载
       await startAsyncTask(async () => {
         if (strictLocalFilesEnabled) {
-          throw new Error('导出可编辑 PPTX 需要服务端处理文件数据；严格本地模式下已禁用，避免上传用户图片或文件。');
+          const images = await collectStrictLocalPageImagesForExport(currentProject, pageIds);
+          if (images.length === 0) {
+            throw new Error(t('store.exportLinkFailed'));
+          }
+          return api.exportLocalEditablePPTX(projectId, images, { filename });
         }
         return api.exportEditablePPTX(projectId, filename, pageIds);
       });

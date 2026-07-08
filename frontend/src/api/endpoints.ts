@@ -950,6 +950,18 @@ export interface LocalExportImageInput {
   file: File;
 }
 
+const appendTemporaryLocalExportImages = (
+  formData: FormData,
+  images: LocalExportImageInput[],
+  exportPageIds?: string[],
+): void => {
+  formData.append('page_ids', (exportPageIds || images.map((image) => image.pageId)).join(','));
+  images.forEach((image, index) => {
+    formData.append('images', image.file, image.file.name || `slide_${index + 1}.png`);
+    formData.append(`page_ids[${index}]`, image.pageId);
+  });
+};
+
 export const downloadBlob = (blob: Blob, filename: string): void => {
   const href = URL.createObjectURL(blob);
   const link = Object.assign(document.createElement('a'), {
@@ -1055,10 +1067,17 @@ export const exportLocalEditablePPTX = async (
     maxWorkers?: number;
   },
 ): Promise<ApiResponse<{ task_id: string }>> => {
-  void projectId;
-  void images;
-  void options;
-  throw createStrictLocalExportUnavailableError('导出可编辑 PPTX');
+  const formData = new FormData();
+  appendTemporaryLocalExportImages(formData, images);
+  if (options?.filename) formData.append('filename', options.filename);
+  if (options?.maxDepth != null) formData.append('max_depth', String(options.maxDepth));
+  if (options?.maxWorkers != null) formData.append('max_workers', String(options.maxWorkers));
+
+  const response = await apiClient.post<ApiResponse<{ task_id: string }>>(
+    `/api/projects/${projectId}/export/local/editable-pptx`,
+    formData,
+  );
+  return response.data;
 };
 
 /**
