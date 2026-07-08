@@ -60,6 +60,49 @@ def _write_local_image(path):
     Image.new("RGB", (320, 180), color="green").save(path, format="PNG")
 
 
+def test_editable_pptx_falls_back_to_full_slide_when_layout_analysis_fails(tmp_path, monkeypatch):
+    from services.export_service import ExportService
+    import services.image_editability as image_editability
+
+    image_path = tmp_path / "slide.png"
+    output_path = tmp_path / "fallback.pptx"
+    Image.new("RGB", (320, 180), color="green").save(image_path, format="PNG")
+
+    class FakeServiceConfig:
+        @classmethod
+        def from_defaults(cls, **_kwargs):
+            return cls()
+
+    class FailingImageEditabilityService:
+        def __init__(self, _config):
+            pass
+
+        def make_image_editable(self, _image_path):
+            raise RuntimeError(
+                "版面分析失败: MinerU结果目录不存在: /tmp/local_editable_x/editability_work/mineru_files/x"
+            )
+
+    monkeypatch.setattr(image_editability, "ServiceConfig", FakeServiceConfig)
+    monkeypatch.setattr(image_editability, "ImageEditabilityService", FailingImageEditabilityService)
+
+    _, warnings = ExportService.create_editable_pptx_with_recursive_analysis(
+        image_paths=[str(image_path)],
+        output_file=str(output_path),
+        slide_width_pixels=320,
+        slide_height_pixels=180,
+        max_depth=1,
+        max_workers=1,
+        text_attribute_extractor=None,
+        fail_fast=True,
+        upload_folder=str(tmp_path / "work"),
+    )
+
+    assert output_path.exists()
+    assert zipfile.is_zipfile(output_path)
+    assert warnings.has_warnings()
+    assert "版面分析失败" in warnings.other_warnings[0]
+
+
 def test_local_pptx_pdf_and_images_use_request_files_only(client, app):
     project_id, page_id = _create_project_with_pages(app, project_id="local-standard-export")
     upload_root = app.config["UPLOAD_FOLDER"]

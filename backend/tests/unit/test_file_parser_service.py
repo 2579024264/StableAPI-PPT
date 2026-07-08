@@ -2,8 +2,10 @@
 Unit tests for FileParserService provider-specific behavior.
 """
 
+import io
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -90,3 +92,30 @@ def test_generate_single_caption_vertex_uses_provider_factory():
     finally:
         if os.path.exists(image_path):
             os.remove(image_path)
+
+
+def test_download_markdown_uses_configured_mineru_output_root(tmp_path):
+    """Editable export can keep MinerU outputs in its own temporary work directory."""
+    service = FileParserService(
+        mineru_token='test-token',
+        provider_format='openai',
+        mineru_output_root=str(tmp_path / 'editability_work'),
+    )
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w') as zf:
+        zf.writestr('full.md', '# Parsed\n![img](images/a.png)')
+        zf.writestr('images/a.png', b'fake image bytes')
+    zip_buffer.seek(0)
+
+    response = MagicMock()
+    response.content = zip_buffer.getvalue()
+    response.raise_for_status.return_value = None
+
+    with patch('services.file_parser_service.requests.get', return_value=response):
+        markdown, extract_id, error = service._download_markdown('https://example.test/result.zip')
+
+    assert error is None
+    assert markdown and '# Parsed' in markdown
+    assert extract_id
+    assert (tmp_path / 'editability_work' / 'mineru_files' / extract_id / 'full.md').exists()

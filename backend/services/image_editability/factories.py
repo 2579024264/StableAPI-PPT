@@ -587,7 +587,8 @@ class ServiceConfig:
         # 创建MinerU解析服务
         parser_service = FileParserService(
             mineru_token=mineru_token,
-            mineru_api_base=mineru_api_base
+            mineru_api_base=mineru_api_base,
+            mineru_output_root=str(upload_path),
         )
         
         # 创建提取器注册表
@@ -763,4 +764,3 @@ class TextAttributeExtractorFactory:
         logger.info("创建TextAttributeExtractorRegistry")
         
         return registry
-

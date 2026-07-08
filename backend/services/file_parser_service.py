@@ -9,6 +9,7 @@ import zipfile
 import io
 import requests
 import tempfile
+from pathlib import Path
 from typing import Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
@@ -58,6 +59,7 @@ class FileParserService:
                  lazyllm_image_caption_source: str = "", 
                  provider_format: str = None,
                  mineru_model_version: str = "vlm",
+                 mineru_output_root: str = None,
                  ):
         """
         Initialize the file parser service
@@ -73,12 +75,14 @@ class FileParserService:
             lazyllm_image_caption_source: image caption model provider for lazyllm
             provider_format: AI provider format ('gemini' or 'openai'). If not provided, reads from environment variable.
             mineru_model_version: MinerU model version ('vlm' or 'pipeline'). Default is 'vlm'.
+            mineru_output_root: Directory under which MinerU files are extracted. Defaults to project uploads.
         """
         self.mineru_token = mineru_token
         self.mineru_api_base = mineru_api_base
         self.mineru_model_version = mineru_model_version
         self.get_upload_url_api = f"{mineru_api_base}/api/v4/file-urls/batch"
         self.get_result_api_template = f"{mineru_api_base}/api/v4/extract-results/batch/{{}}"
+        self._mineru_output_root = Path(mineru_output_root).resolve() if mineru_output_root else None
         
         self._image_caption_model = image_caption_model
         self._provider_format = _get_ai_provider_format(provider_format)
@@ -379,18 +383,14 @@ class FileParserService:
             import uuid
             extract_id = str(uuid.uuid4())[:8]
             
-            # Get upload folder from Flask config (we'll need to pass this)
-            # For now, use a hardcoded path relative to project root
-            import os
-            from pathlib import Path
-            
-            # Navigate to project root (assuming this file is in backend/services/)
-            current_file = Path(__file__).resolve()
-            backend_dir = current_file.parent.parent
-            project_root = backend_dir.parent
-            
-            # Create directory for mineru extracts
-            mineru_storage = project_root / 'uploads' / 'mineru_files' / extract_id
+            if self._mineru_output_root is not None:
+                mineru_storage = self._mineru_output_root / 'mineru_files' / extract_id
+            else:
+                # Default path for normal reference-file parsing.
+                current_file = Path(__file__).resolve()
+                backend_dir = current_file.parent.parent
+                project_root = backend_dir.parent
+                mineru_storage = project_root / 'uploads' / 'mineru_files' / extract_id
             mineru_storage.mkdir(parents=True, exist_ok=True)
             
             logger.info(f"Extracting ZIP to: {mineru_storage}")

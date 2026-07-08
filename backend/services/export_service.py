@@ -1356,8 +1356,47 @@ class ExportService:
                         percent = 5 + int(35 * completed_count / total_pages)
                         report_progress("版面分析", f"已完成第 {completed_count}/{total_pages} 页的版面分析", percent)
                     except Exception as e:
-                        logger.error(f"处理图片 {image_paths[idx]} 失败: {e}")
-                        raise
+                        logger.warning(
+                            "处理图片 %s 的版面分析失败，降级为整页背景: %s",
+                            image_paths[idx],
+                            e,
+                            exc_info=True,
+                        )
+                        try:
+                            with Image.open(image_paths[idx]) as fallback_img:
+                                width, height = fallback_img.size
+                            from services.image_editability.data_models import EditableImage
+                            results[idx] = EditableImage(
+                                image_id=f"fallback_{idx + 1}",
+                                image_path=image_paths[idx],
+                                width=width,
+                                height=height,
+                                elements=[],
+                                clean_background=None,
+                                depth=0,
+                                metadata={
+                                    'fallback_reason': str(e),
+                                    'editable': False,
+                                },
+                            )
+                            warnings.add_warning(
+                                f"第 {idx + 1} 页版面分析失败，已保留为整页图片背景：{e}"
+                            )
+                            completed_count += 1
+                            percent = 5 + int(35 * completed_count / total_pages)
+                            report_progress(
+                                "版面分析",
+                                f"第 {idx + 1} 页分析失败，已降级为整页背景",
+                                percent,
+                            )
+                        except Exception as fallback_error:
+                            logger.error(
+                                "处理图片 %s 失败，且无法创建降级页: %s",
+                                image_paths[idx],
+                                fallback_error,
+                                exc_info=True,
+                            )
+                            raise
                 
                 editable_images = results
         
