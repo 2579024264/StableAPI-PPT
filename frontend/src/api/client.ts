@@ -39,7 +39,9 @@ const normalizePublicBasePath = (basePath?: string): string => {
   return withLeadingSlash.replace(/\/+$/, '');
 };
 
-const PUBLIC_BASE_PATH = normalizePublicBasePath(import.meta.env.VITE_PUBLIC_BASE_PATH);
+const PUBLIC_BASE_PATH = normalizePublicBasePath(
+  import.meta.env.VITE_PUBLIC_BASE_PATH || import.meta.env.BASE_URL
+);
 
 function withPublicBasePath(path: string): string {
   if (!PUBLIC_BASE_PATH || !path.startsWith('/')) return path;

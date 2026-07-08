@@ -26,8 +26,7 @@ const previewI18n = {
     preview: {
       title: "预览", pageCount: "共 {{count}} 页", export: "导出", exportTasks: "导出任务",
       exportPptx: "导出为 PPTX", exportPdf: "导出为 PDF",
-      exportEditablePptx: "导出可编辑 PPTX（Beta）", exportImages: "导出为图片",
-      exportVideo: "导出为讲解视频",
+      exportEditablePptx: "导出可编辑 PPTX", exportImages: "导出为图片",
       pptxExportTitle: "PPTX 导出设置",
       pptxExportSubtitle: "在导出前确认本次 PPTX 的播放设置。",
       pptxTransitionToggle: "启用页面切换动画",
@@ -148,8 +147,7 @@ const previewI18n = {
     preview: {
       title: "Preview", pageCount: "{{count}} pages", export: "Export", exportTasks: "Export Tasks",
       exportPptx: "Export as PPTX", exportPdf: "Export as PDF",
-      exportEditablePptx: "Export Editable PPTX (Beta)", exportImages: "Export as Images",
-      exportVideo: "Export as Narration Video",
+      exportEditablePptx: "Export Editable PPTX", exportImages: "Export as Images",
       pptxExportTitle: "PPTX Export Settings",
       pptxExportSubtitle: "Confirm playback settings before exporting this PPTX.",
       pptxTransitionToggle: "Enable slide transitions",
@@ -404,7 +402,7 @@ export const SlidePreview: React.FC = () => {
   const [showPptxExportDialog, setShowPptxExportDialog] = useState(false);
   const [showVideoExportDialog, setShowVideoExportDialog] = useState(false);
   const [showEditablePptxDialog, setShowEditablePptxDialog] = useState(false);
-  const [editablePptxDialogIconTransparent, setEditablePptxDialogIconTransparent] = useState(true);
+  const [editablePptxDialogIconTransparent, setEditablePptxDialogIconTransparent] = useState(false);
   const [pptxTransitionsEnabled, setPptxTransitionsEnabled] = useState(false);
   const [pptxTransitionEffects, setPptxTransitionEffects] = useState<PptxTransitionEffect[]>(['fade']);
   const [videoEnableKenBurns, setVideoEnableKenBurns] = useState(false);
@@ -469,7 +467,7 @@ export const SlidePreview: React.FC = () => {
     currentProject?.export_allow_partial || false
   );
   const [enableIconSubjectExtraction, setEnableIconSubjectExtraction] = useState<boolean>(
-    currentProject?.enable_icon_subject_extraction ?? true
+    currentProject?.enable_icon_subject_extraction ?? false
   );
   const [isSavingExportSettings, setIsSavingExportSettings] = useState(false);
   // 画面比例
@@ -582,7 +580,7 @@ export const SlidePreview: React.FC = () => {
         setExportExtractorMethod((currentProject.export_extractor_method as ExportExtractorMethod) || 'hybrid');
         setExportInpaintMethod((currentProject.export_inpaint_method as ExportInpaintMethod) || 'hybrid');
         setExportAllowPartial(currentProject.export_allow_partial || false);
-        setEnableIconSubjectExtraction(currentProject.enable_icon_subject_extraction ?? true);
+        setEnableIconSubjectExtraction(currentProject.enable_icon_subject_extraction ?? false);
         setAspectRatio(currentProject.image_aspect_ratio || '16:9');
         lastProjectId.current = currentProject.id || null;
         isEditingRequirements.current = false;
@@ -600,7 +598,7 @@ export const SlidePreview: React.FC = () => {
         setExportExtractorMethod((currentProject.export_extractor_method as ExportExtractorMethod) || 'hybrid');
         setExportInpaintMethod((currentProject.export_inpaint_method as ExportInpaintMethod) || 'hybrid');
         setExportAllowPartial(currentProject.export_allow_partial || false);
-        setEnableIconSubjectExtraction(currentProject.enable_icon_subject_extraction ?? true);
+        setEnableIconSubjectExtraction(currentProject.enable_icon_subject_extraction ?? false);
       }
       // 如果用户正在编辑，则不更新本地状态
     }
@@ -1761,7 +1759,7 @@ export const SlidePreview: React.FC = () => {
                 <button
                   onClick={() => {
                     setShowExportMenu(false);
-                    setEditablePptxDialogIconTransparent(currentProject?.enable_icon_subject_extraction ?? true);
+                    setEditablePptxDialogIconTransparent(false);
                     setShowEditablePptxDialog(true);
                   }}
                   disabled={!exportRangeHasAllImages}
@@ -1785,36 +1783,6 @@ export const SlidePreview: React.FC = () => {
                   className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-background-hover transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {t('preview.exportImages')}
-                </button>
-                <button
-                  onClick={async () => {
-                    setShowExportMenu(false);
-                    try {
-                      const res = await getSettings();
-                      const hasKey = (res.data?.elevenlabs_api_key_length ?? 0) > 0;
-                      setElevenLabsApiKeyConfigured(hasKey);
-                      const lang = (res.data?.output_language as string | undefined) || 'zh';
-                      setOutputLanguage(lang);
-                      if (!hasKey) setElevenLabsEnabled(false);
-                      if (hasKey && elevenLabsEnabled && elevenLabsVoices.length === 0) {
-                        setElevenLabsVoicesLoading(true);
-                        try {
-                          const voicesRes = await getElevenLabsVoices();
-                          setElevenLabsVoices(voicesRes.data?.voices ?? []);
-                        } catch (error) {
-                          console.error('Failed to load ElevenLabs voices:', error);
-                        }
-                        setElevenLabsVoicesLoading(false);
-                      }
-                  } catch (error) {
-                    console.error('Failed to load settings before video export:', error);
-                  }
-                  setVideoIncludeNoImage(false);
-                  setShowVideoExportDialog(true);
-                }}
-                  className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-background-hover transition-colors text-sm"
-                >
-                  {t('preview.exportVideo')}
                 </button>
               </div>
             )}
@@ -2234,7 +2202,7 @@ export const SlidePreview: React.FC = () => {
               <button
                 onClick={async () => {
                   setShowEditablePptxDialog(false);
-                  if (projectId && (currentProject?.enable_icon_subject_extraction ?? true) !== editablePptxDialogIconTransparent) {
+                  if (projectId && (currentProject?.enable_icon_subject_extraction ?? false) !== editablePptxDialogIconTransparent) {
                     try {
                       await updateProject(projectId, { enable_icon_subject_extraction: editablePptxDialogIconTransparent });
                       await syncProject(projectId);

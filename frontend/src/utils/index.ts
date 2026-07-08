@@ -10,7 +10,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function getPublicBasePath(): string {
-  const raw = (import.meta.env.VITE_PUBLIC_BASE_PATH || '').trim();
+  const raw = (import.meta.env.VITE_PUBLIC_BASE_PATH || import.meta.env.BASE_URL || '').trim();
   if (!raw || raw === '.' || raw === './' || raw === '/') return '';
   const withLeadingSlash = raw.startsWith('/') ? raw : `/${raw}`;
   return withLeadingSlash.replace(/\/+$/, '');

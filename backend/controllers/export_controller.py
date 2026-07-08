@@ -646,10 +646,7 @@ def export_editable_pptx(project_id):
         # 读取项目的导出设置
         export_extractor_method = project.export_extractor_method or 'hybrid'
         export_inpaint_method = project.export_inpaint_method or 'hybrid'
-        enable_icon_subject_extraction = (
-            True if project.enable_icon_subject_extraction is None
-            else bool(project.enable_icon_subject_extraction)
-        )
+        enable_icon_subject_extraction = bool(project.enable_icon_subject_extraction)
         logger.info(
             f"Export settings: extractor={export_extractor_method}, "
             f"inpaint={export_inpaint_method}, "
@@ -738,10 +735,7 @@ def export_local_editable_pptx(project_id):
 
         export_extractor_method = project.export_extractor_method or 'hybrid'
         export_inpaint_method = project.export_inpaint_method or 'hybrid'
-        enable_icon_subject_extraction = (
-            True if project.enable_icon_subject_extraction is None
-            else bool(project.enable_icon_subject_extraction)
-        )
+        enable_icon_subject_extraction = bool(project.enable_icon_subject_extraction)
 
         from services.file_service import FileService
         from services.task_manager import task_manager, export_editable_pptx_with_recursive_analysis_task

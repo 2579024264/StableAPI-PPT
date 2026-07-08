@@ -57,7 +57,7 @@ def repair_desktop_settings_schema(db):
             'export_extractor_method': "VARCHAR(50) DEFAULT 'hybrid'",
             'export_inpaint_method': "VARCHAR(50) DEFAULT 'hybrid'",
             'export_allow_partial': 'BOOLEAN DEFAULT 0',
-            'enable_icon_subject_extraction': 'BOOLEAN DEFAULT 1',
+            'enable_icon_subject_extraction': 'BOOLEAN DEFAULT 0',
             'image_aspect_ratio': "VARCHAR(10) DEFAULT '16:9'",
         },
         'pages': {

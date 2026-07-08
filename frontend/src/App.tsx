@@ -132,7 +132,9 @@ function App() {
         <AccessCodeGuard>
           {(() => {
             const Router = isDesktop ? HashRouter : BrowserRouter;
-            const basename = isDesktop ? undefined : normalizeRouterBasename(import.meta.env.VITE_PUBLIC_BASE_PATH);
+            const basename = isDesktop
+              ? undefined
+              : normalizeRouterBasename(import.meta.env.VITE_PUBLIC_BASE_PATH || import.meta.env.BASE_URL);
             return (
               <Router basename={basename}>
                 <UrlApiKeyBootstrap show={show} />

@@ -1601,7 +1601,7 @@ def export_editable_pptx_with_recursive_analysis_task(
     max_workers: int = 4,
     export_extractor_method: str = 'hybrid',
     export_inpaint_method: str = 'hybrid',
-    enable_icon_subject_extraction: bool = True,
+    enable_icon_subject_extraction: bool = False,
     local_image_items: list = None,
     strict_local_export_result: bool = False,
     local_temp_dir: str = None,
