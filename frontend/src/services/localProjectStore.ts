@@ -1,5 +1,6 @@
 import type { CreateProjectRequest, Page, Project } from '@/types';
 import { localFileStore } from './localFileStore';
+import { getLocalFileIdFromUrl, isLocalFileUrl } from './localFileUrls';
 
 const DB_NAME = 'banana-slides-local-projects';
 const DB_VERSION = 1;
@@ -35,6 +36,34 @@ const normalizeProjectIds = (project: Project): Project => ({
     page_id: page.page_id || page.id || randomId(),
   })),
 });
+
+const collectLocalFileId = (url: string | null | undefined, ids: Set<string>): void => {
+  if (typeof url === 'string' && isLocalFileUrl(url)) {
+    ids.add(getLocalFileIdFromUrl(url));
+  }
+};
+
+const restoreProjectLocalFileObjectUrls = async (project: Project): Promise<Project> => {
+  const ids = new Set<string>();
+
+  collectLocalFileId(project.template_image_path, ids);
+  collectLocalFileId(project.template_image_url, ids);
+
+  for (const page of project.pages || []) {
+    collectLocalFileId(page.generated_image_path, ids);
+    collectLocalFileId(page.generated_image_url, ids);
+    for (const version of page.image_versions || []) {
+      collectLocalFileId(version.image_path, ids);
+      collectLocalFileId(version.image_url, ids);
+    }
+  }
+
+  await Promise.all(
+    Array.from(ids).map((id) => localFileStore.createObjectUrl(id).catch(() => undefined)),
+  );
+
+  return project;
+};
 
 const titleFromRequest = (data: CreateProjectRequest): string => {
   const source = data.outline_text || data.description_text || data.idea_prompt || '';
@@ -90,7 +119,7 @@ class BrowserLocalProjectStore {
     const project = await requestToPromise<Project | undefined>(
       tx.objectStore(PROJECT_STORE).get(projectId),
     );
-    return project ? normalizeProjectIds(project) : undefined;
+    return project ? restoreProjectLocalFileObjectUrls(normalizeProjectIds(project)) : undefined;
   }
 
   async listProjects(limit?: number, offset = 0): Promise<{ projects: Project[]; total: number }> {
@@ -102,8 +131,10 @@ class BrowserLocalProjectStore {
     const sorted = projects
       .map(normalizeProjectIds)
       .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+    const paged = typeof limit === 'number' ? sorted.slice(offset, offset + limit) : sorted.slice(offset);
+    const hydrated = await Promise.all(paged.map(restoreProjectLocalFileObjectUrls));
     return {
-      projects: typeof limit === 'number' ? sorted.slice(offset, offset + limit) : sorted.slice(offset),
+      projects: hydrated,
       total: sorted.length,
     };
   }

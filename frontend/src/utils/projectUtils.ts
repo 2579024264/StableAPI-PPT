@@ -87,10 +87,10 @@ export const getFirstPageImage = (project: Project): string | null => {
     return null;
   }
 
-  // 找到第一页有图片的页面，优先使用 generated_image_url（已包含缩略图逻辑）
-  const firstPageWithImage = project.pages.find(p => p.generated_image_url);
-  if (firstPageWithImage?.generated_image_url) {
-    return getImageUrl(firstPageWithImage.generated_image_url, firstPageWithImage.updated_at);
+  const firstPageWithImage = project.pages.find(p => p.generated_image_url || p.generated_image_path);
+  const imagePath = firstPageWithImage?.generated_image_url || firstPageWithImage?.generated_image_path;
+  if (imagePath) {
+    return getImageUrl(imagePath, firstPageWithImage?.updated_at);
   }
 
   return null;
