@@ -134,6 +134,96 @@ def create_page(project_id):
         return error_response('SERVER_ERROR', str(e), 500)
 
 
+@page_bp.route('/<project_id>/pages/sync-local', methods=['POST'])
+def sync_local_pages(project_id):
+    """
+    POST /api/projects/{project_id}/pages/sync-local
+
+    Strict-local mode keeps user files in the browser, but backend AI tasks still
+    need page text metadata. This endpoint upserts only textual page metadata and
+    ordering; it intentionally ignores image/file paths.
+    """
+    try:
+        project = Project.query.get(project_id)
+
+        if not project:
+            return not_found('Project')
+
+        data = request.get_json() or {}
+        pages_data = data.get('pages')
+        if not isinstance(pages_data, list):
+            return bad_request("pages must be a list")
+
+        existing_pages = Page.query.filter_by(project_id=project_id).all()
+        existing_by_id = {page.id: page for page in existing_pages}
+        seen_ids = set()
+        synced_pages = []
+
+        for index, page_data in enumerate(pages_data):
+            if not isinstance(page_data, dict):
+                return bad_request("each page must be an object")
+
+            raw_page_id = page_data.get('page_id') or page_data.get('id')
+            page_id = raw_page_id if isinstance(raw_page_id, str) and 0 < len(raw_page_id) <= 36 else None
+            page = existing_by_id.get(page_id) if page_id else None
+
+            if page is None:
+                page = Page(project_id=project_id)
+                if page_id:
+                    page.id = page_id
+                db.session.add(page)
+
+            page.order_index = int(page_data.get('order_index', index))
+            page.part = page_data.get('part')
+
+            if 'outline_content' in page_data:
+                page.set_outline_content(page_data.get('outline_content'))
+
+            if 'description_content' in page_data:
+                page.set_description_content(page_data.get('description_content'))
+
+            if 'narration_text' in page_data:
+                page.set_narration_text(page_data.get('narration_text'))
+
+            status = page_data.get('status')
+            if isinstance(status, str) and status:
+                page.status = status
+            elif page.description_content:
+                page.status = 'DESCRIPTION_GENERATED'
+            else:
+                page.status = 'DRAFT'
+
+            page.updated_at = datetime.utcnow()
+            seen_ids.add(page.id)
+            synced_pages.append(page)
+
+        for page in existing_pages:
+            if page.id not in seen_ids:
+                db.session.delete(page)
+
+        if synced_pages:
+            if all(page.description_content for page in synced_pages):
+                project.status = 'DESCRIPTIONS_GENERATED'
+            else:
+                project.status = 'OUTLINE_GENERATED'
+        else:
+            project.status = 'DRAFT'
+        project.updated_at = datetime.utcnow()
+
+        db.session.commit()
+
+        ordered_pages = Page.query.filter_by(project_id=project_id).order_by(Page.order_index).all()
+        return success_response({
+            'pages': [page.to_dict() for page in ordered_pages],
+            'total': len(ordered_pages),
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Failed to sync local pages for project {project_id}: {e}", exc_info=True)
+        return error_response('SERVER_ERROR', 'An internal server error occurred', 500)
+
+
 @page_bp.route('/<project_id>/pages/<page_id>', methods=['DELETE'])
 def delete_page(project_id, page_id):
     """

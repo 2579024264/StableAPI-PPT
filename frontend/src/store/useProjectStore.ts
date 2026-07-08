@@ -117,6 +117,46 @@ const claimStrictLocalImageResultsFromServer = async (
   }
 };
 
+const mergeServerPageTextMetadata = async (localProject: Project): Promise<Project> => {
+  if (!strictLocalFilesEnabled || !localProject.id) return localProject;
+
+  try {
+    const response = await api.getServerProjectSnapshot(localProject.id);
+    if (!response.data) return localProject;
+
+    const serverProject = normalizeProject(response.data);
+    const localPagesById = new Map(
+      (localProject.pages || []).map((page) => [page.id || page.page_id, page]),
+    );
+
+    const mergedPages = (serverProject.pages || []).map((serverPage) => {
+      const pageId = serverPage.id || serverPage.page_id;
+      const localPage = pageId ? localPagesById.get(pageId) : undefined;
+      return {
+        ...localPage,
+        ...serverPage,
+        generated_image_path: localPage?.generated_image_path,
+        generated_image_url: localPage?.generated_image_url,
+        image_versions: localPage?.image_versions,
+      };
+    });
+
+    if (mergedPages.length === 0) return localProject;
+
+    const mergedProject = {
+      ...localProject,
+      status: serverProject.status || localProject.status,
+      pages: mergedPages,
+      updated_at: serverProject.updated_at || localProject.updated_at,
+    };
+    await persistLocalProject(mergedProject);
+    return mergedProject;
+  } catch (error) {
+    console.warn('[strict-local-files] Failed to merge server page text metadata:', error);
+    return localProject;
+  }
+};
+
 const mergeLocalProjectTemplate = async (project: Project): Promise<Project> => {
   if (!project.id) return project;
   const localTemplate = await getLocalProjectTemplate(project.id);
@@ -133,6 +173,17 @@ const persistLocalProject = async (project: Project | null | undefined): Promise
   if (!strictLocalFilesEnabled || !project?.id) return;
   await localProjectStore.putProject(project).catch((error) => {
     console.warn('[strict-local-files] Failed to persist local project:', error);
+  });
+};
+
+const syncLocalPageMetadataForTasks = async (project: Project | null | undefined): Promise<void> => {
+  if (!strictLocalFilesEnabled || !project?.id) return;
+  const pages = project.pages || [];
+  if (pages.length === 0) return;
+
+  await api.syncLocalPagesToServer(project.id, pages).catch((error) => {
+    console.warn('[strict-local-files] Failed to sync page metadata for backend task:', error);
+    throw error;
   });
 };
 
@@ -871,6 +922,8 @@ const debouncedUpdatePage = debounce(
     const pages = currentProject.pages.filter((p) => p.id);
     if (pages.length === 0) return;
 
+    await syncLocalPageMetadataForTasks(currentProject);
+
     // 检查描述生成模式，优先从 sessionStorage 缓存读取以避免额外 API 调用
     let mode: string = 'streaming';
     try {
@@ -995,6 +1048,17 @@ const debouncedUpdatePage = debounce(
         }
 
         let pollErrors = 0;
+        const syncDescriptionResults = async () => {
+          if (strictLocalFilesEnabled) {
+            const { currentProject: latestProject } = get();
+            if (latestProject) {
+              const merged = await mergeServerPageTextMetadata(latestProject);
+              set({ currentProject: merged });
+            }
+          } else {
+            await get().syncProject();
+          }
+        };
         const pollAndSync = async () => {
           try {
             const taskResponse = await api.getTaskStatus(projectId, taskId);
@@ -1005,18 +1069,18 @@ const debouncedUpdatePage = debounce(
                 set({ taskProgress: task.progress });
               }
 
-              await get().syncProject();
+              await syncDescriptionResults();
 
               if (task.status === 'COMPLETED') {
                 set({ taskProgress: null, activeTaskId: null });
-                await get().syncProject();
+                await syncDescriptionResults();
               } else if (task.status === 'FAILED') {
                 set({
                   taskProgress: null,
                   activeTaskId: null,
                   error: normalizeErrorMessage(task.error_message || task.error || t('store.generateDescFailed'))
                 });
-                await get().syncProject();
+                await syncDescriptionResults();
               } else if (task.status === 'PENDING' || task.status === 'PROCESSING') {
                 setTimeout(pollAndSync, 2000);
               }
@@ -1031,10 +1095,10 @@ const debouncedUpdatePage = debounce(
                 activeTaskId: null,
                 error: normalizeErrorMessage(error.message || t('store.generateDescTimeout'))
               });
-              await get().syncProject();
+              await syncDescriptionResults();
               return;
             }
-            await get().syncProject();
+            await syncDescriptionResults();
             setTimeout(pollAndSync, 2000);
           }
         };
@@ -1073,6 +1137,7 @@ const debouncedUpdatePage = debounce(
     void persistLocalProject(generatingProject);
 
     try {
+      await syncLocalPageMetadataForTasks(currentProject);
       const response = await api.generatePageDescription(currentProject.id, pageId, true, undefined, detailLevel);
 
       if (response.data) {
@@ -1156,6 +1221,7 @@ const debouncedUpdatePage = debounce(
     set({ error: null, warningMessage: null });
 
     try {
+      await syncLocalPageMetadataForTasks(currentProject);
       const response = await api.generatePageImage(
         projectId,
         pageId,
@@ -1211,6 +1277,7 @@ const debouncedUpdatePage = debounce(
     set({ error: null, warningMessage: null });
     
     try {
+      await syncLocalPageMetadataForTasks(currentProject);
       // 调用批量生成 API
       const response = await api.generateImages(
         projectId,

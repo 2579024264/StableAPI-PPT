@@ -84,6 +84,104 @@ class TestProjectGet:
         assert response.status_code in [400, 404]
 
 
+class TestStrictLocalPageSync:
+    def test_sync_local_pages_upserts_text_metadata_only(self, client, app):
+        response = client.post('/api/projects', json={
+            'creation_type': 'idea',
+            'idea_prompt': '生成一份宠物救助PPT'
+        })
+        data = assert_success_response(response, 201)
+        project_id = data['data']['project_id']
+
+        response = client.post(f'/api/projects/{project_id}/pages/sync-local', json={
+            'pages': [
+                {
+                    'page_id': 'local-page-1',
+                    'order_index': 0,
+                    'part': '第一部分',
+                    'outline_content': {'title': '封面', 'points': ['介绍']},
+                    'description_content': {'text': '介绍宠物救助主题'},
+                    'generated_image_path': 'local-file://should-not-be-saved',
+                    'generated_image_url': 'local-file://should-not-be-saved',
+                },
+                {
+                    'page_id': 'local-page-2',
+                    'order_index': 1,
+                    'outline_content': {'title': '现状', 'points': ['收容压力']},
+                },
+            ],
+        })
+
+        data = assert_success_response(response)
+        assert data['data']['total'] == 2
+        assert [p['page_id'] for p in data['data']['pages']] == ['local-page-1', 'local-page-2']
+
+        project_response = client.get(f'/api/projects/{project_id}')
+        project_data = assert_success_response(project_response)
+        pages = project_data['data']['pages']
+        assert len(pages) == 2
+        assert pages[0]['outline_content']['title'] == '封面'
+        assert pages[0]['description_content']['text'] == '介绍宠物救助主题'
+        assert pages[0]['generated_image_url'] is None
+
+    def test_description_stream_accepts_synced_local_pages(self, client, monkeypatch):
+        response = client.post('/api/projects', json={
+            'creation_type': 'idea',
+            'idea_prompt': '生成一份宠物救助PPT'
+        })
+        data = assert_success_response(response, 201)
+        project_id = data['data']['project_id']
+
+        sync_response = client.post(f'/api/projects/{project_id}/pages/sync-local', json={
+            'pages': [
+                {
+                    'page_id': 'local-page-1',
+                    'order_index': 0,
+                    'outline_content': {'title': '封面', 'points': ['主题']},
+                },
+                {
+                    'page_id': 'local-page-2',
+                    'order_index': 1,
+                    'outline_content': {'title': '现状', 'points': ['困境']},
+                },
+            ],
+        })
+        assert_success_response(sync_response)
+
+        class FakeAIService:
+            def flatten_outline(self, outline):
+                pages = []
+                for item in outline:
+                    if 'pages' in item:
+                        pages.extend(item.get('pages', []))
+                    else:
+                        pages.append(item)
+                return [{'title': page['title'], 'points': page.get('points', [])} for page in pages]
+
+            def generate_descriptions_stream(self, project_context, outline, flat_pages, language=None, detail_level='default'):
+                for index, page in enumerate(flat_pages):
+                    yield {
+                        'page_index': index,
+                        'description_text': f"{page['title']}的页面描述",
+                    }
+                yield {'__stream_complete__': True}
+
+        monkeypatch.setattr('controllers.project_controller.get_ai_service', lambda: FakeAIService())
+
+        stream_response = client.post(
+            f'/api/projects/{project_id}/generate/descriptions/stream',
+            json={'language': 'zh'},
+            buffered=True,
+        )
+
+        assert stream_response.status_code == 200
+        body = b''.join(stream_response.response).decode('utf-8')
+        assert 'event: description' in body
+        assert 'local-page-1' in body
+        assert '封面的页面描述' in body
+        assert 'event: done' in body
+
+
 class TestResourceConcurrency:
     def test_image_limiter_allows_more_than_global_four_workers(self, app):
         """图片资源并发应由 image limiter 控制，而不是被旧的全局 4 worker 提前卡住。"""

@@ -120,6 +120,26 @@ const buildLocalTemplatePayload = async (
   };
 };
 
+const getFetchErrorMessage = async (response: Response): Promise<string> => {
+  try {
+    const data = await response.clone().json();
+    return data?.error?.message || data?.message || `HTTP ${response.status}`;
+  } catch {
+    return `HTTP ${response.status}`;
+  }
+};
+
+const toServerPageMetadata = (page: Page, index: number) => ({
+  page_id: page.id || page.page_id,
+  id: page.id || page.page_id,
+  order_index: page.order_index ?? index,
+  part: page.part,
+  outline_content: page.outline_content ?? null,
+  description_content: page.description_content ?? null,
+  narration_text: page.narration_text ?? null,
+  status: page.description_content ? 'DESCRIPTION_GENERATED' : 'DRAFT',
+});
+
 /**
  * 获取项目列表（历史项目）
  */
@@ -156,6 +176,21 @@ export const getProject = async (projectId: string): Promise<ApiResponse<Project
 
 export const getServerProjectSnapshot = async (projectId: string): Promise<ApiResponse<Project>> => {
   const response = await apiClient.get<ApiResponse<Project>>(`/api/projects/${projectId}`);
+  return response.data;
+};
+
+export const syncLocalPagesToServer = async (
+  projectId: string,
+  pages: Page[],
+): Promise<ApiResponse<{ pages: Page[]; total: number }>> => {
+  if (!strictLocalFilesEnabled) {
+    return { success: true, data: { pages, total: pages.length } };
+  }
+
+  const response = await apiClient.post<ApiResponse<{ pages: Page[]; total: number }>>(
+    `/api/projects/${projectId}/pages/sync-local`,
+    { pages: pages.map(toServerPageMetadata) },
+  );
   return response.data;
 };
 
@@ -267,7 +302,7 @@ export const generateOutlineStream = async (
   });
 
   if (!response.ok || !response.body) {
-    callbacks.onError(`HTTP ${response.status}`);
+    callbacks.onError(await getFetchErrorMessage(response));
     return;
   }
 
@@ -380,7 +415,7 @@ export const generateDescriptionsStream = async (
   });
 
   if (!response.ok || !response.body) {
-    callbacks.onError(`HTTP ${response.status}`);
+    callbacks.onError(await getFetchErrorMessage(response));
     return;
   }
 
