@@ -293,6 +293,14 @@ def list_projects():
     - offset: offset for pagination (default: 0)
     """
     try:
+        if not current_app.config.get('ALLOW_SERVER_PROJECT_HISTORY', False):
+            return success_response({
+                'projects': [],
+                'total': 0,
+                'limit': request.args.get('limit', 50, type=int) or 50,
+                'offset': request.args.get('offset', 0, type=int) or 0,
+            })
+
         # Parameter validation
         limit = request.args.get('limit', 50, type=int)
         offset = request.args.get('offset', 0, type=int)

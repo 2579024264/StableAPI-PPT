@@ -15,6 +15,7 @@ import {
   uploadLocalUserTemplate,
 } from '@/services/strictLocalFiles';
 import { getLocalFileIdFromUrl, isLocalFileUrl } from '@/services/localFileUrls';
+import { localProjectStore } from '@/services/localProjectStore';
 
 export type { Material };
 
@@ -52,6 +53,30 @@ export const createProject = async (data: CreateProjectRequest): Promise<ApiResp
     template_style: data.template_style,
     image_aspect_ratio: data.image_aspect_ratio,
   });
+  if (strictLocalFilesEnabled && response.data?.project_id) {
+    const now = new Date().toISOString();
+    const project: Project = {
+      project_id: response.data.project_id,
+      id: response.data.project_id,
+      project_title: data.outline_text || data.description_text || data.idea_prompt || '未命名项目',
+      idea_prompt: data.idea_prompt || '',
+      outline_text: data.outline_text,
+      description_text: data.description_text,
+      creation_type,
+      template_style: data.template_style,
+      image_aspect_ratio: data.image_aspect_ratio || '16:9',
+      export_extractor_method: 'hybrid',
+      export_inpaint_method: 'hybrid',
+      export_allow_partial: true,
+      enable_icon_subject_extraction: false,
+      status: (response.data.status as Project['status']) || 'DRAFT',
+      pages: [],
+      created_at: now,
+      updated_at: now,
+    };
+    await localProjectStore.putProject(project);
+    return { ...response.data, data: project };
+  }
   return response.data;
 };
 
@@ -99,6 +124,10 @@ const buildLocalTemplatePayload = async (
  * 获取项目列表（历史项目）
  */
 export const listProjects = async (limit?: number, offset?: number): Promise<ApiResponse<{ projects: Project[]; total: number }>> => {
+  if (strictLocalFilesEnabled) {
+    return { success: true, data: await localProjectStore.listProjects(limit, offset || 0) };
+  }
+
   const params = new URLSearchParams();
   if (limit !== undefined) params.append('limit', limit.toString());
   if (offset !== undefined) params.append('offset', offset.toString());
@@ -113,6 +142,19 @@ export const listProjects = async (limit?: number, offset?: number): Promise<Api
  * 获取项目详情
  */
 export const getProject = async (projectId: string): Promise<ApiResponse<Project>> => {
+  if (strictLocalFilesEnabled) {
+    const project = await localProjectStore.getProject(projectId);
+    if (project) return { success: true, data: project };
+  }
+
+  const response = await apiClient.get<ApiResponse<Project>>(`/api/projects/${projectId}`);
+  if (strictLocalFilesEnabled && response.data) {
+    await localProjectStore.putProject(response.data);
+  }
+  return response.data;
+};
+
+export const getServerProjectSnapshot = async (projectId: string): Promise<ApiResponse<Project>> => {
   const response = await apiClient.get<ApiResponse<Project>>(`/api/projects/${projectId}`);
   return response.data;
 };
@@ -121,6 +163,12 @@ export const getProject = async (projectId: string): Promise<ApiResponse<Project
  * 删除项目
  */
 export const deleteProject = async (projectId: string): Promise<ApiResponse> => {
+  if (strictLocalFilesEnabled) {
+    await localProjectStore.deleteProject(projectId);
+    await apiClient.delete<ApiResponse>(`/api/projects/${projectId}`).catch(() => undefined);
+    return { success: true };
+  }
+
   const response = await apiClient.delete<ApiResponse>(`/api/projects/${projectId}`);
   return response.data;
 };
@@ -132,6 +180,12 @@ export const updateProject = async (
   projectId: string,
   data: Partial<Project>
 ): Promise<ApiResponse<Project>> => {
+  if (strictLocalFilesEnabled) {
+    const localProject = await localProjectStore.updateProject(projectId, data);
+    await apiClient.put<ApiResponse<Project>>(`/api/projects/${projectId}`, data).catch(() => undefined);
+    return { success: true, data: localProject };
+  }
+
   const response = await apiClient.put<ApiResponse<Project>>(`/api/projects/${projectId}`, data);
   return response.data;
 };
@@ -143,6 +197,15 @@ export const updatePagesOrder = async (
   projectId: string,
   pageIds: string[]
 ): Promise<ApiResponse<Project>> => {
+  if (strictLocalFilesEnabled) {
+    const localProject = await localProjectStore.updateProject(projectId, { pages_order: pageIds } as any);
+    await apiClient.put<ApiResponse<Project>>(
+      `/api/projects/${projectId}`,
+      { pages_order: pageIds }
+    ).catch(() => undefined);
+    return { success: true, data: localProject };
+  }
+
   const response = await apiClient.put<ApiResponse<Project>>(
     `/api/projects/${projectId}`,
     { pages_order: pageIds }
@@ -463,7 +526,12 @@ export const generateImages = async (
   const localTemplatePayload = await buildLocalTemplatePayload(projectId, templateImageUrl);
   const response = await apiClient.post<ApiResponse>(
     `/api/projects/${projectId}/generate/images`,
-    { language: lang, page_ids: pageIds, ...localTemplatePayload }
+    {
+      language: lang,
+      page_ids: pageIds,
+      strict_local_files: strictLocalFilesEnabled,
+      ...localTemplatePayload,
+    }
   );
   return response.data;
 };
@@ -482,7 +550,12 @@ export const generatePageImage = async (
   const localTemplatePayload = await buildLocalTemplatePayload(projectId, templateImageUrl);
   const response = await apiClient.post<ApiResponse>(
     `/api/projects/${projectId}/pages/${pageId}/generate/image`,
-    { force_regenerate: forceRegenerate, language: lang, ...localTemplatePayload }
+    {
+      force_regenerate: forceRegenerate,
+      language: lang,
+      strict_local_files: strictLocalFilesEnabled,
+      ...localTemplatePayload,
+    }
   );
   return response.data;
 };
@@ -504,6 +577,7 @@ export const editPageImage = async (
   if (contextImages?.uploadedFiles && contextImages.uploadedFiles.length > 0) {
     const formData = new FormData();
     formData.append('edit_instruction', editPrompt);
+    formData.append('strict_local_files', String(strictLocalFilesEnabled));
     formData.append('use_template', String(contextImages.useTemplate || false));
     if (contextImages.descImageUrls && contextImages.descImageUrls.length > 0) {
       formData.append('desc_image_urls', JSON.stringify(contextImages.descImageUrls));
@@ -524,6 +598,7 @@ export const editPageImage = async (
       `/api/projects/${projectId}/pages/${pageId}/edit/image`,
       {
         edit_instruction: editPrompt,
+        strict_local_files: strictLocalFilesEnabled,
         context_images: {
           use_template: contextImages?.useTemplate || false,
           desc_image_urls: contextImages?.descImageUrls || [],
@@ -571,6 +646,15 @@ export const updatePage = async (
   pageId: string,
   data: Partial<Page>
 ): Promise<ApiResponse<Page>> => {
+  if (strictLocalFilesEnabled) {
+    const page = await localProjectStore.updatePage(projectId, pageId, data);
+    await apiClient.put<ApiResponse<Page>>(
+      `/api/projects/${projectId}/pages/${pageId}`,
+      data
+    ).catch(() => undefined);
+    return { success: true, data: page };
+  }
+
   const response = await apiClient.put<ApiResponse<Page>>(
     `/api/projects/${projectId}/pages/${pageId}`,
     data
@@ -587,6 +671,21 @@ export const updatePageDescription = async (
   descriptionContent: any,
   language?: OutputLanguage
 ): Promise<ApiResponse<Page>> => {
+  if (strictLocalFilesEnabled) {
+    const page = await localProjectStore.updatePage(projectId, pageId, {
+      description_content: descriptionContent,
+      status: 'DESCRIPTION_GENERATED',
+    });
+    await apiClient.put<ApiResponse<Page>>(
+      `/api/projects/${projectId}/pages/${pageId}/description`,
+      { description_content: descriptionContent, language: await getStoredOutputLanguage() }
+    ).catch(() => undefined);
+    return {
+      success: true,
+      data: page,
+    };
+  }
+
   const lang = language || await getStoredOutputLanguage();
   const response = await apiClient.put<ApiResponse<Page>>(
     `/api/projects/${projectId}/pages/${pageId}/description`,
@@ -604,6 +703,20 @@ export const updatePageOutline = async (
   outlineContent: any,
   language?: OutputLanguage
 ): Promise<ApiResponse<Page>> => {
+  if (strictLocalFilesEnabled) {
+    const page = await localProjectStore.updatePage(projectId, pageId, {
+      outline_content: outlineContent,
+    });
+    await apiClient.put<ApiResponse<Page>>(
+      `/api/projects/${projectId}/pages/${pageId}/outline`,
+      { outline_content: outlineContent, language: await getStoredOutputLanguage() }
+    ).catch(() => undefined);
+    return {
+      success: true,
+      data: page,
+    };
+  }
+
   const lang = language || await getStoredOutputLanguage();
   const response = await apiClient.put<ApiResponse<Page>>(
     `/api/projects/${projectId}/pages/${pageId}/outline`,
@@ -616,6 +729,14 @@ export const updatePageOutline = async (
  * 删除页面
  */
 export const deletePage = async (projectId: string, pageId: string): Promise<ApiResponse> => {
+  if (strictLocalFilesEnabled) {
+    await localProjectStore.deletePage(projectId, pageId);
+    await apiClient.delete<ApiResponse>(
+      `/api/projects/${projectId}/pages/${pageId}`
+    ).catch(() => undefined);
+    return { success: true };
+  }
+
   const response = await apiClient.delete<ApiResponse>(
     `/api/projects/${projectId}/pages/${pageId}`
   );
@@ -626,6 +747,15 @@ export const deletePage = async (projectId: string, pageId: string): Promise<Api
  * 添加页面
  */
 export const addPage = async (projectId: string, data: Partial<Page>): Promise<ApiResponse<Page>> => {
+  if (strictLocalFilesEnabled) {
+    const page = await localProjectStore.addPage(projectId, data);
+    await apiClient.post<ApiResponse<Page>>(
+      `/api/projects/${projectId}/pages`,
+      data
+    ).catch(() => undefined);
+    return { success: true, data: page };
+  }
+
   const response = await apiClient.post<ApiResponse<Page>>(
     `/api/projects/${projectId}/pages`,
     data
@@ -951,6 +1081,10 @@ export const listExports = async (
   modified_at: string;
   download_url: string;
 }> }>> => {
+  if (strictLocalFilesEnabled) {
+    return { success: true, data: { files: [] } };
+  }
+
   const response = await apiClient.get(`/api/projects/${projectId}/exports`);
   return response.data;
 };
@@ -962,6 +1096,10 @@ export const deleteExport = async (
   projectId: string,
   filename: string,
 ): Promise<ApiResponse<{ filename: string }>> => {
+  if (strictLocalFilesEnabled) {
+    return { success: true, data: { filename } };
+  }
+
   const response = await apiClient.delete(
     `/api/projects/${projectId}/exports/${encodeURIComponent(filename)}`
   );

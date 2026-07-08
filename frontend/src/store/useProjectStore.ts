@@ -18,6 +18,7 @@ import {
   storeLocalPageImageBlob,
   strictLocalFilesEnabled,
 } from '@/services/strictLocalFiles';
+import { localProjectStore } from '@/services/localProjectStore';
 
 const claimingLocalResultIds = new Set<string>();
 
@@ -43,9 +44,9 @@ const claimStrictLocalImageResults = async (project: Project): Promise<Project> 
         page.id,
         `${page.id}.png`,
       );
-      await api.confirmLocalPageImage(project.id, page.id, localFileUrl);
       page.generated_image_path = localFileUrl;
       page.generated_image_url = localFileUrl;
+      page.status = 'COMPLETED';
       changed = true;
     } catch (error) {
       console.warn('[strict-local-files] Failed to claim generated image result:', error);
@@ -55,6 +56,65 @@ const claimStrictLocalImageResults = async (project: Project): Promise<Project> 
   }
 
   return changed ? { ...project, pages } : project;
+};
+
+const claimStrictLocalImageResultsFromServer = async (
+  localProject: Project,
+  pageIds?: string[],
+): Promise<Project> => {
+  if (!strictLocalFilesEnabled || !localProject.id) return localProject;
+
+  try {
+    const response = await api.getServerProjectSnapshot(localProject.id);
+    if (!response.data) return localProject;
+    const serverProject = normalizeProject(response.data);
+    const wanted = pageIds ? new Set(pageIds) : null;
+    const serverPagesById = new Map(
+      (serverProject.pages || []).map((page) => [page.id || page.page_id, page]),
+    );
+    const mergedPages = [...(localProject.pages || [])];
+    let changed = false;
+
+    for (const page of mergedPages) {
+      const pageId = page.id || page.page_id;
+      if (!pageId || (wanted && !wanted.has(pageId))) continue;
+      const serverPage = serverPagesById.get(pageId);
+      const resultUrl = serverPage?.generated_image_path || serverPage?.generated_image_url;
+      if (!isLocalResultUrl(resultUrl)) {
+        if (serverPage?.status === 'FAILED') {
+          page.status = 'FAILED';
+          changed = true;
+        }
+        continue;
+      }
+
+      const resultId = getLocalResultIdFromUrl(resultUrl as string);
+      if (claimingLocalResultIds.has(resultId)) continue;
+
+      claimingLocalResultIds.add(resultId);
+      try {
+        const blob = await api.getLocalResultBlob(localProject.id, resultId);
+        const localFileUrl = await storeLocalPageImageBlob(
+          blob,
+          localProject.id,
+          pageId,
+          `${pageId}.png`,
+        );
+        page.generated_image_path = localFileUrl;
+        page.generated_image_url = localFileUrl;
+        page.status = 'COMPLETED';
+        page.updated_at = new Date().toISOString();
+        changed = true;
+      } finally {
+        claimingLocalResultIds.delete(resultId);
+      }
+    }
+
+    return changed ? { ...localProject, pages: mergedPages, status: serverProject.status || localProject.status } : localProject;
+  } catch (error) {
+    console.warn('[strict-local-files] Failed to claim server local image results:', error);
+    return localProject;
+  }
 };
 
 const mergeLocalProjectTemplate = async (project: Project): Promise<Project> => {
@@ -67,6 +127,13 @@ const mergeLocalProjectTemplate = async (project: Project): Promise<Project> => 
     template_image_url: localTemplate.template_image_url,
     template_image_path: localTemplate.template_image_url,
   };
+};
+
+const persistLocalProject = async (project: Project | null | undefined): Promise<void> => {
+  if (!strictLocalFilesEnabled || !project?.id) return;
+  await localProjectStore.putProject(project).catch((error) => {
+    console.warn('[strict-local-files] Failed to persist local project:', error);
+  });
 };
 
 const storeI18n = {
@@ -257,7 +324,10 @@ const debouncedUpdatePage = debounce(
   isDescriptionStreaming: false,
 
   // Setters
-  setCurrentProject: (project) => set({ currentProject: project }),
+  setCurrentProject: (project) => {
+    set({ currentProject: project });
+    void persistLocalProject(project);
+  },
   setGlobalLoading: (loading) => set({ isGlobalLoading: loading }),
   setError: (error) => set({ error }),
 
@@ -327,6 +397,7 @@ const debouncedUpdatePage = debounce(
           project.template_image_path = localTemplateImageUrl;
         }
         set({ currentProject: project });
+        await persistLocalProject(project);
         // 保存到 localStorage
         localStorage.setItem('currentProjectId', project.id!);
       }
@@ -369,6 +440,7 @@ const debouncedUpdatePage = debounce(
           status: project.status
         });
         set({ currentProject: project });
+        await persistLocalProject(project);
         // 确保 localStorage 中保存了项目ID
         localStorage.setItem('currentProjectId', project.id!);
       }
@@ -431,6 +503,7 @@ const debouncedUpdatePage = debounce(
         pages: updatedPages,
       },
     });
+    void persistLocalProject({ ...currentProject, pages: updatedPages });
 
     // 防抖后调用API
     debouncedUpdatePage(currentProject.id, pageId, data);
@@ -746,6 +819,7 @@ const debouncedUpdatePage = debounce(
         if (proj) {
           const normalized = normalizeProject({ ...proj, pages: streamState.doneData.pages });
           set({ currentProject: normalized, isOutlineStreaming: false });
+          await persistLocalProject(normalized);
         }
         devLog('[流式大纲] 完成:', streamState.doneData.total, '个页面');
         return { complete: streamState.doneData.complete ?? false };
@@ -843,7 +917,9 @@ const debouncedUpdatePage = debounce(
                 }
                 return page;
               });
-              set({ currentProject: { ...proj, pages: updatedPages } });
+              const nextProject = { ...proj, pages: updatedPages };
+              set({ currentProject: nextProject });
+              void persistLocalProject(nextProject);
             }
             setTimeout(tick, STAGGER_MS);
           } else if (streamDone) {
@@ -878,6 +954,7 @@ const debouncedUpdatePage = debounce(
               isDescriptionStreaming: false,
               ...(doneData.warning ? { error: doneData.warning } : {}),
             });
+            await persistLocalProject(normalized);
           }
           devLog('[流式描述] 完成:', doneData.total, '个页面');
         } else {
@@ -991,7 +1068,9 @@ const debouncedUpdatePage = debounce(
     const updatedPages = currentProject.pages.map((page) =>
       page.id === pageId ? { ...page, status: 'GENERATING_DESCRIPTION' as const } : page
     );
-    set({ currentProject: { ...currentProject, pages: updatedPages } });
+    const generatingProject = { ...currentProject, pages: updatedPages };
+    set({ currentProject: generatingProject });
+    void persistLocalProject(generatingProject);
 
     try {
       const response = await api.generatePageDescription(currentProject.id, pageId, true, undefined, detailLevel);
@@ -1003,7 +1082,9 @@ const debouncedUpdatePage = debounce(
           const newPages = latestProject.pages.map((page) =>
             page.id === pageId ? { ...page, ...updatedPageData } : page
           );
-          set({ currentProject: { ...latestProject, pages: newPages } });
+          const nextProject = { ...latestProject, pages: newPages };
+          set({ currentProject: nextProject });
+          await persistLocalProject(nextProject);
           devLog(`[生成描述] 页面 ${pageId} 描述已更新，数据来自 API 响应`);
         }
       }
@@ -1033,7 +1114,9 @@ const debouncedUpdatePage = debounce(
     const updatedPages = currentProject.pages.map((page) =>
       page.id === pageId ? { ...page, status: 'GENERATING_DESCRIPTION' as const } : page
     );
-    set({ currentProject: { ...currentProject, pages: updatedPages } });
+    const generatingProject = { ...currentProject, pages: updatedPages };
+    set({ currentProject: generatingProject });
+    void persistLocalProject(generatingProject);
 
     try {
       const response = await api.regenerateRenovationPage(currentProject.id, pageId, keepLayout);
@@ -1045,7 +1128,9 @@ const debouncedUpdatePage = debounce(
           const newPages = latestProject.pages.map((page) =>
             page.id === pageId ? { ...page, ...updatedPageData } : page
           );
-          set({ currentProject: { ...latestProject, pages: newPages } });
+          const nextProject = { ...latestProject, pages: newPages };
+          set({ currentProject: nextProject });
+          await persistLocalProject(nextProject);
           devLog(`[PPT翻新] 页面 ${pageId} 大纲和描述已更新`);
         }
       }
@@ -1205,7 +1290,16 @@ const debouncedUpdatePage = debounce(
           const retryDelay = 1000; // 1秒
 
           const syncWithRetry = async (): Promise<void> => {
-            await get().syncProject();
+            if (strictLocalFilesEnabled) {
+              const { currentProject: latestProject } = get();
+              if (latestProject) {
+                const claimed = await claimStrictLocalImageResultsFromServer(latestProject, pageIds);
+                await persistLocalProject(claimed);
+                set({ currentProject: claimed });
+              }
+            } else {
+              await get().syncProject();
+            }
 
             // 验证所有页面的图片路径是否已更新
             const { currentProject: updatedProject } = get();

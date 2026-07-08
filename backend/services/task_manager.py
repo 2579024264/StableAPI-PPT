@@ -947,7 +947,8 @@ def edit_page_image_task(task_id: str, project_id: str, page_id: str,
                          original_description: str = None,
                          additional_ref_images: List[str] = None,
                          use_template_reference: bool = False,
-                         temp_dir: str = None, app=None):
+                         temp_dir: str = None, app=None,
+                         strict_local_results: bool = False):
     """
     Background task for editing a page image
     
@@ -1021,7 +1022,8 @@ def edit_page_image_task(task_id: str, project_id: str, page_id: str,
             
             # 保存编辑后的图片并创建历史版本记录
             image_path, next_version = save_image_with_version(
-                image, project_id, page_id, file_service, page_obj=page
+                image, project_id, page_id, file_service, page_obj=page,
+                strict_local_results=strict_local_results
             )
             
             # Mark task as completed

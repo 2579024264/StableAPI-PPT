@@ -6,7 +6,7 @@ import { localFileStore, type LocalFileRecord } from './localFileStore';
 import { getLocalFileIdFromUrl, isLocalFileUrl, toLocalFileUrl } from './localFileUrls';
 
 export const strictLocalFilesEnabled =
-  import.meta.env.VITE_STRICT_LOCAL_FILES === 'true';
+  import.meta.env.VITE_STRICT_LOCAL_FILES !== 'false';
 
 const recordToMaterial = async (record: LocalFileRecord): Promise<Material> => {
   await localFileStore.createObjectUrl(record.id);

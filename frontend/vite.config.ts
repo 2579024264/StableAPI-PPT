@@ -86,15 +86,30 @@ export default defineConfig(({ mode }) => {
           target: backendUrl,
           changeOrigin: true,
         },
+        '/ppt/api': {
+          target: backendUrl,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/ppt/, ''),
+        },
         // 文件服务代理到后端
         '/files': {
           target: backendUrl,
           changeOrigin: true,
         },
+        '/ppt/files': {
+          target: backendUrl,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/ppt/, ''),
+        },
         // 健康检查代理到后端
         '/health': {
           target: backendUrl,
           changeOrigin: true,
+        },
+        '/ppt/health': {
+          target: backendUrl,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/ppt/, ''),
         },
       },
     },

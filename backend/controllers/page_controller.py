@@ -678,6 +678,7 @@ def edit_page_image(project_id, page_id):
                     data['desc_image_urls'] = []
             else:
                 data['desc_image_urls'] = []
+        strict_local_files = _strict_local_files_requested(data)
         
         if not data or 'edit_instruction' not in data:
             return bad_request("edit_instruction is required")
@@ -782,7 +783,8 @@ def edit_page_image(project_id, page_id):
             additional_ref_images if additional_ref_images else None,
             use_template,
             str(temp_dir) if temp_dir else None,
-            app
+            app,
+            strict_local_files
         )
         
         # Return task_id immediately
