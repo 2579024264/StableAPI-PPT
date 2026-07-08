@@ -284,10 +284,11 @@ import { SlideCard } from '@/components/preview/SlideCard';
 import { useProjectStore } from '@/store/useProjectStore';
 import { useExportTasksStore, type ExportTaskType } from '@/store/useExportTasksStore';
 import { getImageUrl } from '@/api/client';
-import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate, exportPPTX as apiExportPPTX, exportPDF as apiExportPDF, exportImages as apiExportImages, exportLocalPPTX as apiExportLocalPPTX, exportLocalPDF as apiExportLocalPDF, exportLocalImages as apiExportLocalImages, exportEditablePPTX as apiExportEditablePPTX, exportLocalEditablePPTX as apiExportLocalEditablePPTX, exportVideo as apiExportVideo, exportLocalVideo as apiExportLocalVideo, getSettings, getElevenLabsVoices } from '@/api/endpoints';
+import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate, exportPPTX as apiExportPPTX, exportPDF as apiExportPDF, exportImages as apiExportImages, exportLocalPPTX as apiExportLocalPPTX, exportLocalPDF as apiExportLocalPDF, exportLocalImages as apiExportLocalImages, exportEditablePPTX as apiExportEditablePPTX, exportLocalEditablePPTX as apiExportLocalEditablePPTX, exportVideo as apiExportVideo, exportLocalVideo as apiExportLocalVideo, getSettings, getElevenLabsVoices, getLocalResultBlob } from '@/api/endpoints';
 import type { ImageVersion, DescriptionContent, ExportExtractorMethod, ExportInpaintMethod, Page, NarrationConfig } from '@/types';
 import { normalizeErrorMessage } from '@/utils';
 import { collectLocalPageImagesForExport, strictLocalFilesEnabled } from '@/services/strictLocalFiles';
+import { localProjectStore } from '@/services/localProjectStore';
 
 const VIDEO_VOICE_OPTIONS = [
   { group: '中文', voices: [
@@ -307,6 +308,9 @@ const VIDEO_VOICE_OPTIONS = [
     { id: 'ja-JP-KeitaNeural', label: 'Keita（男声）', lang: 'ja' },
   ]},
 ];
+
+const getPageImagePath = (page?: Page | null): string | undefined =>
+  page?.generated_image_path || page?.generated_image_url;
 
 const NARRATION_PERSONA_OPTIONS = [
   { value: 'charismatic keynote speaker', zh: '演讲家', en: 'Keynote speaker' },
@@ -511,11 +515,11 @@ export const SlidePreview: React.FC = () => {
 
   // Memoize pages with generated images to avoid re-computing in multiple places
   const pagesWithImages = useMemo(() => {
-    return currentProject?.pages.filter(p => p.id && p.generated_image_path) || [];
+    return currentProject?.pages.filter(p => p.id && getPageImagePath(p)) || [];
   }, [currentProject?.pages]);
 
   const hasImages = useMemo(
-    () => currentProject?.pages?.some(p => p.generated_image_path) ?? false,
+    () => currentProject?.pages?.some(p => getPageImagePath(p)) ?? false,
     [currentProject?.pages]
   );
 
@@ -695,7 +699,7 @@ export const SlidePreview: React.FC = () => {
       const pagesToGenerate = isPartialGenerate
         ? currentProject?.pages.filter(p => p.id && selectedPageIds.has(p.id))
         : currentProject?.pages;
-      const hasImages = pagesToGenerate?.some((p) => p.generated_image_path);
+      const hasImages = pagesToGenerate?.some((p) => getPageImagePath(p));
 
       const executeGenerate = async () => {
         try {
@@ -1191,6 +1195,16 @@ export const SlidePreview: React.FC = () => {
     return Array.from(selectedPageIds);
   };
 
+  const collectImagesForExport = async (exportPageIds?: string[]) => {
+    if (!currentProject) return [];
+    return collectLocalPageImagesForExport(currentProject, exportPageIds, {
+      loadLocalResultBlob: (resultId) => getLocalResultBlob(currentProject.id || projectId!, resultId),
+      onProjectChanged: async (project) => {
+        await localProjectStore.putProject(project);
+      },
+    });
+  };
+
   const handleExport = async (
     type: 'pptx' | 'pdf' | 'editable-pptx' | 'images' | 'video',
     options?: {
@@ -1207,7 +1221,7 @@ export const SlidePreview: React.FC = () => {
     try {
       if (type === 'pptx' || type === 'pdf' || type === 'images') {
         if (strictLocalFilesEnabled && currentProject) {
-          const images = await collectLocalPageImagesForExport(currentProject, pageIds);
+          const images = await collectImagesForExport(pageIds);
           if (images.length === 0) {
             throw new Error(t('preview.disabledExportTip', { count: exportMissingImageCount || 1 }));
           }
@@ -1272,7 +1286,7 @@ export const SlidePreview: React.FC = () => {
         
         let response;
         if (strictLocalFilesEnabled && currentProject) {
-          const images = await collectLocalPageImagesForExport(currentProject, pageIds);
+          const images = await collectImagesForExport(pageIds);
           if (images.length === 0) {
             throw new Error(t('preview.disabledExportTip', { count: exportMissingImageCount || 1 }));
           }
@@ -1333,7 +1347,7 @@ export const SlidePreview: React.FC = () => {
         const response = strictLocalFilesEnabled && currentProject
           ? await apiExportLocalVideo(
               projectId,
-              await collectLocalPageImagesForExport(currentProject, videoExportPageIds),
+              await collectImagesForExport(videoExportPageIds),
               { ...videoOptions, pageIds: videoExportPageIds },
             )
           : await apiExportVideo(projectId, videoOptions);
@@ -1571,8 +1585,9 @@ export const SlidePreview: React.FC = () => {
   }
 
   const selectedPage = currentProject.pages[selectedIndex];
-  const imageUrl = selectedPage?.generated_image_path
-    ? getImageUrl(selectedPage.generated_image_path, selectedPage.updated_at)
+  const selectedPageImagePath = getPageImagePath(selectedPage);
+  const imageUrl = selectedPageImagePath
+    ? getImageUrl(selectedPageImagePath, selectedPage.updated_at)
     : '';
 
   const exportRangePages = isMultiSelectMode && selectedPageIds.size > 0
@@ -1581,7 +1596,7 @@ export const SlidePreview: React.FC = () => {
         return pageId ? selectedPageIds.has(pageId) : false;
       })
     : currentProject.pages;
-  const exportMissingImageCount = exportRangePages.filter(p => !p.generated_image_path).length;
+  const exportMissingImageCount = exportRangePages.filter(p => !getPageImagePath(p)).length;
   const exportRangeHasAllImages = exportRangePages.length > 0 && exportMissingImageCount === 0;
   const exportRangeMissingTip = exportMissingImageCount > 0
     ? t('preview.disabledExportTip', { count: exportMissingImageCount })
@@ -2278,7 +2293,7 @@ export const SlidePreview: React.FC = () => {
                   <div className="md:hidden relative">
                     <button
                       onClick={() => {
-                        if (isMultiSelectMode && page.id && page.generated_image_path) {
+                        if (isMultiSelectMode && page.id && getPageImagePath(page)) {
                           togglePageSelection(page.id);
                         } else {
                           setSelectedIndex(index);
@@ -2290,9 +2305,9 @@ export const SlidePreview: React.FC = () => {
                           : 'border-gray-200 dark:border-border-primary'
                       } ${isMultiSelectMode && page.id && selectedPageIds.has(page.id) ? 'ring-2 ring-banana-400' : ''}`}
                     >
-                      {page.generated_image_path ? (
+                      {getPageImagePath(page) ? (
                         <img
-                          src={getImageUrl(page.generated_image_path, page.updated_at)}
+                          src={getImageUrl(getPageImagePath(page), page.updated_at)}
                           alt={`Slide ${index + 1}`}
                           className="w-full h-full object-cover rounded"
                         />
@@ -2303,7 +2318,7 @@ export const SlidePreview: React.FC = () => {
                       )}
                     </button>
                     {/* 多选复选框（移动端） */}
-                    {isMultiSelectMode && page.id && page.generated_image_path && (
+                    {isMultiSelectMode && page.id && getPageImagePath(page) && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2322,7 +2337,7 @@ export const SlidePreview: React.FC = () => {
                   {/* 桌面端：完整卡片 */}
                   <div className="hidden md:block relative">
                     {/* 多选复选框（桌面端） */}
-                    {isMultiSelectMode && page.id && page.generated_image_path && (
+                    {isMultiSelectMode && page.id && getPageImagePath(page) && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2342,7 +2357,7 @@ export const SlidePreview: React.FC = () => {
                       index={index}
                       isSelected={selectedIndex === index}
                       onClick={() => {
-                        if (isMultiSelectMode && page.id && page.generated_image_path) {
+                        if (isMultiSelectMode && page.id && getPageImagePath(page)) {
                           togglePageSelection(page.id);
                         } else {
                           setSelectedIndex(index);
@@ -2390,7 +2405,7 @@ export const SlidePreview: React.FC = () => {
               <div className="flex-1 overflow-y-auto min-h-0 flex items-center justify-center p-4 md:p-8">
                 <div className="max-w-5xl w-full">
                   <div className="relative bg-white dark:bg-background-secondary rounded-lg shadow-xl overflow-hidden touch-manipulation" style={{ aspectRatio: aspectRatioStyle }}>
-                    {selectedPage?.generated_image_path ? (
+                    {selectedPageImagePath ? (
                       <img
                         src={imageUrl}
                         alt={`Slide ${selectedIndex + 1}`}
@@ -2840,7 +2855,7 @@ export const SlidePreview: React.FC = () => {
               <Button
                 variant="primary"
                 onClick={handleSubmitEdit}
-                disabled={!editPrompt.trim() || !selectedPage?.generated_image_path}
+                disabled={!editPrompt.trim() || !selectedPageImagePath}
               >
                 {t('preview.generateImage')}
               </Button>

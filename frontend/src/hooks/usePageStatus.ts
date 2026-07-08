@@ -41,7 +41,7 @@ export const usePageStatus = (
 ): DerivedPageStatus => {
   const t = useT(pageStatusI18n);
   const hasDescription = !!page.description_content;
-  const hasImage = !!page.generated_image_path;
+  const hasImage = !!(page.generated_image_path || page.generated_image_url);
   const pageStatus = page.status;
 
   switch (context) {

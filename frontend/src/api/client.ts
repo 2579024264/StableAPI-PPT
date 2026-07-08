@@ -104,6 +104,19 @@ export const apiClient = axios.create({
   timeout: 300000, // 5分钟超时（AI生成可能很慢）
 });
 
+const parseBlobErrorData = async (data: unknown, headers?: any): Promise<unknown> => {
+  if (!(data instanceof Blob)) return data;
+
+  const contentType = String(headers?.['content-type'] || headers?.['Content-Type'] || data.type || '');
+  if (!contentType.includes('application/json')) return data;
+
+  try {
+    return JSON.parse(await data.text());
+  } catch {
+    return data;
+  }
+};
+
 // 请求拦截器
 apiClient.interceptors.request.use(
   (config) => {
@@ -146,7 +159,11 @@ apiClient.interceptors.response.use(
   (response) => {
     return response;
   },
-  (error) => {
+  async (error) => {
+    if (error.response) {
+      error.response.data = await parseBlobErrorData(error.response.data, error.response.headers);
+    }
+
     // 统一错误处理
     if (error.response) {
       // 服务器返回错误状态码

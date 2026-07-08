@@ -165,9 +165,15 @@ export const storeLocalExportBlob = async (
   };
 };
 
+export interface CollectLocalPageImagesForExportOptions {
+  loadLocalResultBlob?: (resultId: string, pageId: string) => Promise<Blob>;
+  onProjectChanged?: (project: Project) => Promise<void> | void;
+}
+
 export const collectLocalPageImagesForExport = async (
   project: Project,
   pageIds?: string[],
+  options: CollectLocalPageImagesForExportOptions = {},
 ): Promise<LocalExportImageInput[]> => {
   const selected = new Set(pageIds || []);
   const pages = (project.pages || [])
@@ -175,10 +181,36 @@ export const collectLocalPageImagesForExport = async (
     .sort((a, b) => a.order_index - b.order_index);
 
   const images: LocalExportImageInput[] = [];
+  let changed = false;
+
   for (const page of pages) {
     const pageId = page.id || page.page_id;
-    const imageUrl = page.generated_image_path || page.generated_image_url;
-    if (!pageId || !isLocalFileUrl(imageUrl)) continue;
+    let imageUrl = page.generated_image_path || page.generated_image_url;
+    if (!pageId) continue;
+
+    if (isLocalResultUrl(imageUrl) && project.id && options.loadLocalResultBlob) {
+      try {
+        const resultId = getLocalResultIdFromUrl(imageUrl as string);
+        const blob = await options.loadLocalResultBlob(resultId, pageId);
+        const localFileUrl = await storeLocalPageImageBlob(
+          blob,
+          project.id,
+          pageId,
+          `${pageId}.png`,
+        );
+        page.generated_image_path = localFileUrl;
+        page.generated_image_url = localFileUrl;
+        page.status = 'COMPLETED';
+        page.updated_at = new Date().toISOString();
+        imageUrl = localFileUrl;
+        changed = true;
+      } catch (error) {
+        console.warn('[strict-local-files] Failed to claim local result for export:', error);
+        continue;
+      }
+    }
+
+    if (!isLocalFileUrl(imageUrl)) continue;
 
     const file = await localFileStore.getFile(getLocalFileIdFromUrl(imageUrl as string));
     if (file) {
@@ -188,5 +220,10 @@ export const collectLocalPageImagesForExport = async (
       });
     }
   }
+
+  if (changed) {
+    await options.onProjectChanged?.(project);
+  }
+
   return images;
 };

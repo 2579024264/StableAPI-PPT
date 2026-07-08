@@ -50,8 +50,9 @@ export const SlideCard: React.FC<SlideCardProps> = ({
 }) => {
   const t = useT(slideCardI18n);
   const { confirm, ConfirmDialog } = useConfirm();
-  const imageUrl = page.generated_image_path
-    ? getImageUrl(page.generated_image_path, page.updated_at)
+  const imagePath = page.generated_image_path || page.generated_image_url;
+  const imageUrl = imagePath
+    ? getImageUrl(imagePath, page.updated_at)
     : '';
   
   const generating = isGenerating || page.status === 'QUEUED' || page.status === 'GENERATING';
@@ -67,7 +68,7 @@ export const SlideCard: React.FC<SlideCardProps> = ({
       <div className="relative bg-gray-100 dark:bg-background-secondary rounded-lg overflow-hidden mb-2" style={{ aspectRatio: aspectRatio.replace(':', '/') }}>
         {generating ? (
           <Skeleton className="w-full h-full" />
-        ) : page.generated_image_path ? (
+        ) : imagePath ? (
           <>
             <img
               src={imageUrl}

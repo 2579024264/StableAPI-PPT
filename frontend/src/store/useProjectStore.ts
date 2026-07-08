@@ -176,6 +176,14 @@ const persistLocalProject = async (project: Project | null | undefined): Promise
   });
 };
 
+const collectStrictLocalPageImagesForExport = async (
+  project: Project,
+  pageIds?: string[],
+) => collectLocalPageImagesForExport(project, pageIds, {
+  loadLocalResultBlob: (resultId) => api.getLocalResultBlob(project.id!, resultId),
+  onProjectChanged: persistLocalProject,
+});
+
 const syncLocalPageMetadataForTasks = async (project: Project | null | undefined): Promise<void> => {
   if (!strictLocalFilesEnabled || !project?.id) return;
   const pages = project.pages || [];
@@ -1373,7 +1381,7 @@ const debouncedUpdatePage = debounce(
             if (updatedProject) {
               const allImagesReady = pageIds.every(pageId => {
                 const page = updatedProject.pages.find(p => p.id === pageId);
-                return page?.generated_image_path;
+                return page?.generated_image_path || page?.generated_image_url;
               });
 
               if (allImagesReady) {
@@ -1519,7 +1527,7 @@ const debouncedUpdatePage = debounce(
     set({ isGlobalLoading: true, error: null });
     try {
       if (strictLocalFilesEnabled) {
-        const images = await collectLocalPageImagesForExport(currentProject, pageIds);
+        const images = await collectStrictLocalPageImagesForExport(currentProject, pageIds);
         if (images.length === 0) {
           throw new Error(t('store.exportLinkFailed'));
         }
@@ -1554,7 +1562,7 @@ const debouncedUpdatePage = debounce(
     set({ isGlobalLoading: true, error: null });
     try {
       if (strictLocalFilesEnabled) {
-        const images = await collectLocalPageImagesForExport(currentProject, pageIds);
+        const images = await collectStrictLocalPageImagesForExport(currentProject, pageIds);
         if (images.length === 0) {
           throw new Error(t('store.exportLinkFailed'));
         }
@@ -1593,7 +1601,7 @@ const debouncedUpdatePage = debounce(
       // startAsyncTask 中的 pollTask 会在任务完成时自动处理下载
       await startAsyncTask(async () => {
         if (strictLocalFilesEnabled) {
-          const images = await collectLocalPageImagesForExport(currentProject, pageIds);
+          const images = await collectStrictLocalPageImagesForExport(currentProject, pageIds);
           if (images.length === 0) {
             throw new Error(t('store.exportLinkFailed'));
           }

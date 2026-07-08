@@ -115,7 +115,7 @@ type StatusKey = 'notStarted' | 'completed' | 'pendingImages' | 'pendingDesc';
 
 const getStatusKey = (project: Project): StatusKey => {
   if (!project.pages || project.pages.length === 0) return 'notStarted';
-  if (project.pages.some(p => p.generated_image_path)) return 'completed';
+  if (project.pages.some(p => p.generated_image_path || p.generated_image_url)) return 'completed';
   if (project.pages.some(p => p.description_content)) return 'pendingImages';
   return 'pendingDesc';
 };
@@ -149,7 +149,7 @@ export const getProjectRoute = (project: Project): string => {
   if (!projectId) return '/';
   
   if (project.pages && project.pages.length > 0) {
-    const hasImages = project.pages.some(p => p.generated_image_path);
+    const hasImages = project.pages.some(p => p.generated_image_path || p.generated_image_url);
     if (hasImages) {
       return `/project/${projectId}/preview`;
     }
